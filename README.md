@@ -33,7 +33,7 @@ There are several ways to install the GitLab Tool:
 
 ### Option 2: Go install
 ```
-go install github.com/yourusername/gitlab-mcp
+go install github.com/yourusername/gitlab-mcp@latest
 ```
 
 ## Config
