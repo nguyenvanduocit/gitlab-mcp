@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/nguyenvanduocit/gitlab-mcp/tools"
+
 	"github.com/joho/godotenv"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/nguyenvanduocit/gitlab-mcp/tools"
-)
+	"github.com/nguyenvanduocit/gitlab-mcp/util"
+)	
 
 func main() {
 	envFile := flag.String("env", ".env", "Path to environment file")
@@ -25,20 +27,22 @@ func main() {
 		"GitLab Tool",
 		"1.0.0",
 		server.WithLogging(),
-		server.WithPromptCapabilities(true),
-		server.WithResourceCapabilities(true, true),
 	)
 
-	// Register GitLab tool
-	tools.RegisterGitLabTool(mcpServer)
+	tools.RegisterProjectTools(mcpServer)
+	tools.RegisterMergeRequestTools(mcpServer)
+	tools.RegisterRepositoryTools(mcpServer)
+	tools.RegisterPipelineTools(mcpServer)
+	tools.RegisterUserTools(mcpServer)
+	tools.RegisterGroupTools(mcpServer)
 
 	if *ssePort != "" {
 		sseServer := server.NewSSEServer(mcpServer)
-		if err := sseServer.Start(fmt.Sprintf(":%s", *ssePort)); err != nil {
+		if err := sseServer.Start(fmt.Sprintf(":%s", *ssePort)); err != nil && !util.IsContextCanceled(err) {
 			log.Fatalf("Server error: %v", err)
 		}
 	} else {
-		if err := server.ServeStdio(mcpServer); err != nil {
+		if err := server.ServeStdio(mcpServer); err != nil && !util.IsContextCanceled(err) {
 			panic(fmt.Sprintf("Server error: %v", err))
 		}
 	}
