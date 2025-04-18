@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/nguyenvanduocit/gitlab-mcp/compare/v1.0.0...v1.1.0) (2025-04-18)
+
+
+### Features
+
+* support get pipeline ([0aea898](https://github.com/nguyenvanduocit/gitlab-mcp/commit/0aea898983f97217f56ff6e7b6bb21ad6f6fe1f9))
+
 ## 1.0.0 (2025-03-25)
 
 
