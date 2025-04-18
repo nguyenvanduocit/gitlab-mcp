@@ -13,14 +13,14 @@ import (
 )
 
 func RegisterRepositoryTools(s *server.MCPServer) {
-	fileContentTool := mcp.NewTool("gitlab_get_file_content",
+	fileContentTool := mcp.NewTool("get_file_content",
 		mcp.WithDescription("Get file content from a GitLab repository"),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
 		mcp.WithString("file_path", mcp.Required(), mcp.Description("Path to the file in the repository")),
 		mcp.WithString("ref", mcp.Required(), mcp.Description("Branch name, tag, or commit SHA")),
 	)
 
-	commitsTool := mcp.NewTool("gitlab_list_commits",
+	commitsTool := mcp.NewTool("list_commits",
 		mcp.WithDescription("List commits in a GitLab project within a date range"),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
 		mcp.WithString("since", mcp.Required(), mcp.Description("Start date (YYYY-MM-DD)")),
@@ -28,7 +28,7 @@ func RegisterRepositoryTools(s *server.MCPServer) {
 		mcp.WithString("ref", mcp.Required(), mcp.Description("Branch name, tag, or commit SHA")),
 	)
 
-	commitDetailsTool := mcp.NewTool("gitlab_get_commit_details",
+	commitDetailsTool := mcp.NewTool("get_commit_details",
 		mcp.WithDescription("Get details of a commit"),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
 		mcp.WithString("commit_sha", mcp.Required(), mcp.Description("Commit SHA")),

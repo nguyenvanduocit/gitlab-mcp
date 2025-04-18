@@ -12,7 +12,7 @@ import (
 )
 
 func RegisterGroupTools(s *server.MCPServer) {
-	listGroupUsersTool := mcp.NewTool("gitlab_list_group_users",
+	listGroupUsersTool := mcp.NewTool("list_group_users",
 		mcp.WithDescription("List all users in a GitLab group"),
 		mcp.WithString("group_id", mcp.Required(), mcp.Description("GitLab group ID")),
 	)
