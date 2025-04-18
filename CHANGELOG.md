@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/nguyenvanduocit/gitlab-mcp/compare/v1.1.0...v1.2.0) (2025-04-18)
+
+
+### Features
+
+* increase go version ([44318cf](https://github.com/nguyenvanduocit/gitlab-mcp/commit/44318cf2d1c6bd05f4c3a65016345aebfc696807))
+
 ## [1.1.0](https://github.com/nguyenvanduocit/gitlab-mcp/compare/v1.0.0...v1.1.0) (2025-04-18)
 
 
