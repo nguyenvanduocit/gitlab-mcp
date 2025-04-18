@@ -11,13 +11,13 @@ import (
 )
 
 func RegisterProjectTools(s *server.MCPServer) {
-	listProjectsTool := mcp.NewTool("gitlab_list_projects",
+	listProjectsTool := mcp.NewTool("list_projects",
 		mcp.WithDescription("List GitLab projects"),
 		mcp.WithString("group_id", mcp.Required(), mcp.Description("gitlab group ID")),
 		mcp.WithString("search", mcp.Description("Multiple terms can be provided, separated by an escaped space, either + or %20, and will be ANDed together. Example: one+two will match substrings one and two (in any order).")),
 	)
 
-	projectTool := mcp.NewTool("gitlab_get_project",
+	projectTool := mcp.NewTool("get_project",
 		mcp.WithDescription("Get GitLab project details"),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
 	)

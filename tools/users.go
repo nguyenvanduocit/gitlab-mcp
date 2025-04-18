@@ -13,7 +13,7 @@ import (
 )
 
 func RegisterUserTools(s *server.MCPServer) {
-	userEventsTool := mcp.NewTool("gitlab_list_user_events",
+	userEventsTool := mcp.NewTool("list_user_events",
 		mcp.WithDescription("List GitLab user events within a date range"),
 		mcp.WithString("username", mcp.Required(), mcp.Description("GitLab username")),
 		mcp.WithString("since", mcp.Required(), mcp.Description("Start date (YYYY-MM-DD)")),

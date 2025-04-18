@@ -36,6 +36,27 @@ There are several ways to install the GitLab Tool:
 go install github.com/yourusername/gitlab-mcp@latest
 ```
 
+### Option 3: Docker
+
+#### Using Docker directly
+1. Pull the pre-built image from GitHub Container Registry:
+```bash
+docker pull ghcr.io/yourusername/gitlab-mcp:latest
+```
+
+2. Or build the Docker image locally:
+```bash
+docker build -t gitlab-mcp .
+```
+
+3. Run using Docker:
+```bash
+docker run --rm -i \
+  -e GITLAB_TOKEN=your_gitlab_token \
+  -e GITLAB_HOST=your_gitlab_host_url \
+  ghcr.io/yourusername/gitlab-mcp:latest
+```
+
 ## Config
 
 ### Environment
@@ -53,6 +74,27 @@ GITLAB_HOST=your_gitlab_host_url
     "gitlab": {
       "command": "/path-to/gitlab-mcp",
       "args": ["-env", "path-to-env-file"]
+    }
+  }
+}
+```
+
+#### Using Docker with Cursor
+```json
+{
+  "mcpServers": {
+    "gitlab": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "-e",
+        "GITLAB_TOKEN=your_gitlab_token",
+        "-e",
+        "GITLAB_HOST=your_gitlab_host_url",
+        "ghcr.io/yourusername/gitlab-mcp:latest"
+      ]
     }
   }
 }

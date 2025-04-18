@@ -1,0 +1,23 @@
+# Git
+.git
+.gitignore
+.github
+
+# Development
+.cursor
+.DS_Store
+.env
+*.env
+
+# Build artifacts
+bin/
+dist/
+
+# Documentation
+CHANGELOG.md
+LICENSE
+*.md
+
+# Temporary files
+tmp/
+*.tmp 

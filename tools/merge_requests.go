@@ -13,32 +13,32 @@ import (
 )
 
 func RegisterMergeRequestTools(s *server.MCPServer) {
-	mrListTool := mcp.NewTool("gitlab_list_mrs",
+	mrListTool := mcp.NewTool("list_mrs",
 		mcp.WithDescription("List merge requests"),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
 		mcp.WithString("state", mcp.DefaultString("all"), mcp.Description("MR state (opened/closed/merged)")),
 	)
 
-	mrDetailsTool := mcp.NewTool("gitlab_get_mr_details",
+	mrDetailsTool := mcp.NewTool("get_mr_details",
 		mcp.WithDescription("Get merge request details"),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
 		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
 	)
 
-	mrCommentTool := mcp.NewTool("gitlab_create_MR_note",
+	mrCommentTool := mcp.NewTool("create_MR_note",
 		mcp.WithDescription("Create a note on a merge request"),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
 		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
 		mcp.WithString("comment", mcp.Required(), mcp.Description("Comment text")),
 	)
 
-	listMRCommentsTool := mcp.NewTool("gitlab_list_mr_comments",
+	listMRCommentsTool := mcp.NewTool("list_mr_comments",
 		mcp.WithDescription("List all comments on a merge request"),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
 		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
 	)
 
-	createMRTool := mcp.NewTool("gitlab_create_mr",
+	createMRTool := mcp.NewTool("create_mr",
 		mcp.WithDescription("Create a new merge request"),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
 		mcp.WithString("source_branch", mcp.Required(), mcp.Description("Source branch name")),

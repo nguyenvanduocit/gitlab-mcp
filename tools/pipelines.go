@@ -12,7 +12,7 @@ import (
 )
 
 func RegisterPipelineTools(s *server.MCPServer) {
-	pipelineTool := mcp.NewTool("gitlab_list_pipelines",
+	pipelineTool := mcp.NewTool("list_pipelines",
 		mcp.WithDescription("List pipelines for a GitLab project"),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
 		mcp.WithString("status", mcp.DefaultString("all"), mcp.Description("Pipeline status (running/pending/success/failed/canceled/skipped/all)")),
