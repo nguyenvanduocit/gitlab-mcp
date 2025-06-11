@@ -12,6 +12,12 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
+type ListUserEventsArgs struct {
+	Username string `json:"username"`
+	Since    string `json:"since"`
+	Until    string `json:"until"`
+}
+
 func RegisterUserTools(s *server.MCPServer) {
 	userEventsTool := mcp.NewTool("list_user_events",
 		mcp.WithDescription("List GitLab user events within a date range"),
@@ -19,29 +25,23 @@ func RegisterUserTools(s *server.MCPServer) {
 		mcp.WithString("since", mcp.Required(), mcp.Description("Start date (YYYY-MM-DD)")),
 		mcp.WithString("until", mcp.Description("End date (YYYY-MM-DD). If not provided, defaults to current date")),
 	)
-	s.AddTool(userEventsTool, util.ErrorGuard(listUserEventsHandler))
+	s.AddTool(userEventsTool, mcp.NewTypedToolHandler(listUserEventsHandler))
 }
 
-func listUserEventsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	username := request.Params.Arguments["username"].(string)
-	since, ok := request.Params.Arguments["since"].(string)
-	if !ok {
-		return nil, fmt.Errorf("missing required argument: since")
+func listUserEventsHandler(ctx context.Context, request mcp.CallToolRequest, args ListUserEventsArgs) (*mcp.CallToolResult, error) {
+	until := args.Until
+	if until == "" {
+		until = time.Now().Format("2006-01-02")
 	}
 
-	until := time.Now().Format("2006-01-02")
-	if value, ok := request.Params.Arguments["until"]; ok {
-		until = value.(string)
-	}
-
-	sinceTime, err := time.Parse("2006-01-02", since)
+	sinceTime, err := time.Parse("2006-01-02", args.Since)
 	if err != nil {
-		return nil, fmt.Errorf("invalid since date: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("invalid since date: %v", err)), nil
 	}
 
 	untilTime, err := time.Parse("2006-01-02 15:04:05", until+" 23:59:59")
 	if err != nil {
-		return nil, fmt.Errorf("invalid until date: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("invalid until date: %v", err)), nil
 	}
 
 	opt := &gitlab.ListContributionEventsOptions{
@@ -52,14 +52,14 @@ func listUserEventsHandler(ctx context.Context, request mcp.CallToolRequest) (*m
 		},
 	}
 
-	events, _, err := util.GitlabClient().Users.ListUserContributionEvents(username, opt)
+	events, _, err := util.GitlabClient().Users.ListUserContributionEvents(args.Username, opt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list user events: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("failed to list user events: %v", err)), nil
 	}
 
 	var result strings.Builder
 	result.WriteString(fmt.Sprintf("Events for user %s between %s and %s:\n\n",
-		username, since, until))
+		args.Username, args.Since, until))
 
 	for _, event := range events {
 		result.WriteString(fmt.Sprintf("Date: %s\n", event.CreatedAt.Format("2006-01-02 15:04:05")))

@@ -12,6 +12,35 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
+type ListMergeRequestsArgs struct {
+	ProjectPath string `json:"project_path"`
+	State       string `json:"state"`
+}
+
+type GetMergeRequestArgs struct {
+	ProjectPath string `json:"project_path"`
+	MrIID       string `json:"mr_iid"`
+}
+
+type CreateMRNoteArgs struct {
+	ProjectPath string `json:"project_path"`
+	MrIID       string `json:"mr_iid"`
+	Comment     string `json:"comment"`
+}
+
+type ListMRCommentsArgs struct {
+	ProjectPath string `json:"project_path"`
+	MrIID       string `json:"mr_iid"`
+}
+
+type CreateMergeRequestArgs struct {
+	ProjectPath  string `json:"project_path"`
+	SourceBranch string `json:"source_branch"`
+	TargetBranch string `json:"target_branch"`
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+}
+
 func RegisterMergeRequestTools(s *server.MCPServer) {
 	mrListTool := mcp.NewTool("list_mrs",
 		mcp.WithDescription("List merge requests"),
@@ -25,7 +54,7 @@ func RegisterMergeRequestTools(s *server.MCPServer) {
 		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
 	)
 
-	mrCommentTool := mcp.NewTool("create_MR_note",
+	mrCommentTool := mcp.NewTool("create_mr_note",
 		mcp.WithDescription("Create a note on a merge request"),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
 		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
@@ -47,32 +76,30 @@ func RegisterMergeRequestTools(s *server.MCPServer) {
 		mcp.WithString("description", mcp.Description("Merge request description")),
 	)
 
-	s.AddTool(mrListTool, util.ErrorGuard(listMergeRequestsHandler))
-	s.AddTool(mrDetailsTool, util.ErrorGuard(getMergeRequestHandler))
-	s.AddTool(mrCommentTool, util.ErrorGuard(commentOnMergeRequestHandler))
-	s.AddTool(listMRCommentsTool, util.ErrorGuard(listMRCommentsHandler))
-	s.AddTool(createMRTool, util.ErrorGuard(createMergeRequestHandler))
+	s.AddTool(mrListTool, mcp.NewTypedToolHandler(listMergeRequestsHandler))
+	s.AddTool(mrDetailsTool, mcp.NewTypedToolHandler(getMergeRequestHandler))
+	s.AddTool(mrCommentTool, mcp.NewTypedToolHandler(commentOnMergeRequestHandler))
+	s.AddTool(listMRCommentsTool, mcp.NewTypedToolHandler(listMRCommentsHandler))
+	s.AddTool(createMRTool, mcp.NewTypedToolHandler(createMergeRequestHandler))
 
 }
 
-func listMergeRequestsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	projectID := request.Params.Arguments["project_path"].(string)
-
-	state := "all"
-	if value, ok := request.Params.Arguments["state"]; ok {
-		state = value.(string)
+func listMergeRequestsHandler(ctx context.Context, request mcp.CallToolRequest, args ListMergeRequestsArgs) (*mcp.CallToolResult, error) {
+	state := args.State
+	if state == "" {
+		state = "all"
 	}
 
 	opt := &gitlab.ListProjectMergeRequestsOptions{
-		State: gitlab.String(state),
+		State: &state,
 		ListOptions: gitlab.ListOptions{
 			PerPage: 100,
 		},
 	}
 
-	mrs, _, err := util.GitlabClient().MergeRequests.ListProjectMergeRequests(projectID, opt)
+	mrs, _, err := util.GitlabClient().MergeRequests.ListProjectMergeRequests(args.ProjectPath, opt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list merge requests: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("failed to list merge requests: %v", err)), nil
 	}
 	var result strings.Builder
 	for _, mr := range mrs {
@@ -101,25 +128,22 @@ func listMergeRequestsHandler(ctx context.Context, request mcp.CallToolRequest) 
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func getMergeRequestHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	projectID := request.Params.Arguments["project_path"].(string)
-	mrIIDStr := request.Params.Arguments["mr_iid"].(string)
-
-	mrIID, err := strconv.Atoi(mrIIDStr)
+func getMergeRequestHandler(ctx context.Context, request mcp.CallToolRequest, args GetMergeRequestArgs) (*mcp.CallToolResult, error) {
+	mrIID, err := strconv.Atoi(args.MrIID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid mr_iid: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("invalid mr_iid: %v", err)), nil
 	}
 
 	// Get MR details
-	mr, _, err := util.GitlabClient().MergeRequests.GetMergeRequest(projectID, mrIID, nil)
+	mr, _, err := util.GitlabClient().MergeRequests.GetMergeRequest(args.ProjectPath, mrIID, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get merge request: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("failed to get merge request: %v", err)), nil
 	}
 
 	// Get detailed changes
-	changes, _, err := util.GitlabClient().MergeRequests.ListMergeRequestDiffs(projectID, mrIID, nil)
+	changes, _, err := util.GitlabClient().MergeRequests.ListMergeRequestDiffs(args.ProjectPath, mrIID, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get merge request changes: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("failed to get merge request changes: %v", err)), nil
 	}
 
 	var result strings.Builder
@@ -173,23 +197,19 @@ func getMergeRequestHandler(ctx context.Context, request mcp.CallToolRequest) (*
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func commentOnMergeRequestHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	projectID := request.Params.Arguments["project_path"].(string)
-	mrIIDStr := request.Params.Arguments["mr_iid"].(string)
-	comment := request.Params.Arguments["comment"].(string)
-
-	mrIID, err := strconv.Atoi(mrIIDStr)
+func commentOnMergeRequestHandler(ctx context.Context, request mcp.CallToolRequest, args CreateMRNoteArgs) (*mcp.CallToolResult, error) {
+	mrIID, err := strconv.Atoi(args.MrIID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid mr_iid: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("invalid mr_iid: %v", err)), nil
 	}
 
 	opt := &gitlab.CreateMergeRequestNoteOptions{
-		Body: gitlab.String(comment),
+		Body: &args.Comment,
 	}
 
-	note, _, err := util.GitlabClient().Notes.CreateMergeRequestNote(projectID, mrIID, opt)
+	note, _, err := util.GitlabClient().Notes.CreateMergeRequestNote(args.ProjectPath, mrIID, opt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create comment: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("failed to create comment: %v", err)), nil
 	}
 
 	result := fmt.Sprintf("Comment posted successfully!\nID: %d\nAuthor: %s\nCreated: %s\nContent: %s",
@@ -198,13 +218,10 @@ func commentOnMergeRequestHandler(ctx context.Context, request mcp.CallToolReque
 	return mcp.NewToolResultText(result), nil
 }
 
-func listMRCommentsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	projectID := request.Params.Arguments["project_path"].(string)
-	mrIIDStr := request.Params.Arguments["mr_iid"].(string)
-
-	mrIID, err := strconv.Atoi(mrIIDStr)
+func listMRCommentsHandler(ctx context.Context, request mcp.CallToolRequest, args ListMRCommentsArgs) (*mcp.CallToolResult, error) {
+	mrIID, err := strconv.Atoi(args.MrIID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid mr_iid: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("invalid mr_iid: %v", err)), nil
 	}
 
 	opt := &gitlab.ListMergeRequestNotesOptions{
@@ -215,9 +232,9 @@ func listMRCommentsHandler(ctx context.Context, request mcp.CallToolRequest) (*m
 		Sort:    gitlab.Ptr("desc"),
 	}
 
-	notes, _, err := util.GitlabClient().Notes.ListMergeRequestNotes(projectID, mrIID, opt)
+	notes, _, err := util.GitlabClient().Notes.ListMergeRequestNotes(args.ProjectPath, mrIID, opt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list merge request comments: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("failed to list merge request comments: %v", err)), nil
 	}
 
 	var result strings.Builder
@@ -292,26 +309,21 @@ func listMRCommentsHandler(ctx context.Context, request mcp.CallToolRequest) (*m
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func createMergeRequestHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	projectID := request.Params.Arguments["project_path"].(string)
-	sourceBranch := request.Params.Arguments["source_branch"].(string)
-	targetBranch := request.Params.Arguments["target_branch"].(string)
-	title := request.Params.Arguments["title"].(string)
-
+func createMergeRequestHandler(ctx context.Context, request mcp.CallToolRequest, args CreateMergeRequestArgs) (*mcp.CallToolResult, error) {
 	opt := &gitlab.CreateMergeRequestOptions{
-		Title:        gitlab.String(title),
-		SourceBranch: gitlab.String(sourceBranch),
-		TargetBranch: gitlab.String(targetBranch),
+		Title:        &args.Title,
+		SourceBranch: &args.SourceBranch,
+		TargetBranch: &args.TargetBranch,
 	}
 
 	// Add description if provided
-	if description, ok := request.Params.Arguments["description"]; ok {
-		opt.Description = gitlab.String(description.(string))
+	if args.Description != "" {
+		opt.Description = &args.Description
 	}
 
-	mr, _, err := util.GitlabClient().MergeRequests.CreateMergeRequest(projectID, opt)
+	mr, _, err := util.GitlabClient().MergeRequests.CreateMergeRequest(args.ProjectPath, opt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create merge request: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("failed to create merge request: %v", err)), nil
 	}
 
 	result := strings.Builder{}

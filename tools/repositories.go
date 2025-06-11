@@ -12,6 +12,24 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
+type GetFileContentArgs struct {
+	ProjectPath string `json:"project_path"`
+	FilePath    string `json:"file_path"`
+	Ref         string `json:"ref"`
+}
+
+type ListCommitsArgs struct {
+	ProjectPath string `json:"project_path"`
+	Since       string `json:"since"`
+	Until       string `json:"until"`
+	Ref         string `json:"ref"`
+}
+
+type GetCommitDetailsArgs struct {
+	ProjectPath string `json:"project_path"`
+	CommitSHA   string `json:"commit_sha"`
+}
+
 func RegisterRepositoryTools(s *server.MCPServer) {
 	fileContentTool := mcp.NewTool("get_file_content",
 		mcp.WithDescription("Get file content from a GitLab repository"),
@@ -34,32 +52,29 @@ func RegisterRepositoryTools(s *server.MCPServer) {
 		mcp.WithString("commit_sha", mcp.Required(), mcp.Description("Commit SHA")),
 	)
 
-	s.AddTool(fileContentTool, util.ErrorGuard(getFileContentHandler))
-	s.AddTool(commitsTool, util.ErrorGuard(listCommitsHandler))
-	s.AddTool(commitDetailsTool, util.ErrorGuard(getCommitDetailsHandler))
+	s.AddTool(fileContentTool, mcp.NewTypedToolHandler(getFileContentHandler))
+	s.AddTool(commitsTool, mcp.NewTypedToolHandler(listCommitsHandler))
+	s.AddTool(commitDetailsTool, mcp.NewTypedToolHandler(getCommitDetailsHandler))
 }
 
-func getFileContentHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	projectID := request.Params.Arguments["project_path"].(string)
-	filePath := request.Params.Arguments["file_path"].(string)
-
-	ref := "develop" // Default ref if not provided
-	if value, ok := request.Params.Arguments["ref"]; ok {
-		ref = value.(string)
+func getFileContentHandler(ctx context.Context, request mcp.CallToolRequest, args GetFileContentArgs) (*mcp.CallToolResult, error) {
+	ref := args.Ref
+	if ref == "" {
+		ref = "develop" // Default ref if not provided
 	}
 
 	// Get raw file content
-	fileContent, _, err := util.GitlabClient().RepositoryFiles.GetRawFile(projectID, filePath, &gitlab.GetRawFileOptions{
+	fileContent, _, err := util.GitlabClient().RepositoryFiles.GetRawFile(args.ProjectPath, args.FilePath, &gitlab.GetRawFileOptions{
 		Ref: gitlab.Ptr(ref),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get file content: %v; maybe wrong ref?", err)
+		return mcp.NewToolResultError(fmt.Sprintf("failed to get file content: %v; maybe wrong ref?", err)), nil
 	}
 
 	var result strings.Builder
 
 	// Write file information
-	result.WriteString(fmt.Sprintf("File: %s\n", filePath))
+	result.WriteString(fmt.Sprintf("File: %s\n", args.FilePath))
 	result.WriteString(fmt.Sprintf("Ref: %s\n", ref))
 	result.WriteString("Content:\n")
 	result.WriteString(string(fileContent))
@@ -67,31 +82,25 @@ func getFileContentHandler(ctx context.Context, request mcp.CallToolRequest) (*m
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func listCommitsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	projectID := request.Params.Arguments["project_path"].(string)
-	since, ok := request.Params.Arguments["since"].(string)
-	if !ok {
-		return nil, fmt.Errorf("missing required argument: since")
+func listCommitsHandler(ctx context.Context, request mcp.CallToolRequest, args ListCommitsArgs) (*mcp.CallToolResult, error) {
+	until := args.Until
+	if until == "" {
+		until = time.Now().Format("2006-01-02")
 	}
 
-	until := time.Now().Format("2006-01-02")
-	if value, ok := request.Params.Arguments["until"]; ok {
-		until = value.(string)
+	ref := args.Ref
+	if ref == "" {
+		ref = "develop" // Default ref if not provided
 	}
 
-	ref := "develop" // Default ref if not provided
-	if value, ok := request.Params.Arguments["ref"]; ok {
-		ref = value.(string)
-	}
-
-	sinceTime, err := time.Parse("2006-01-02", since)
+	sinceTime, err := time.Parse("2006-01-02", args.Since)
 	if err != nil {
-		return nil, fmt.Errorf("invalid since date: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("invalid since date: %v", err)), nil
 	}
 
 	untilTime, err := time.Parse("2006-01-02 15:04:05", until+" 23:00:00")
 	if err != nil {
-		return nil, fmt.Errorf("invalid until date: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("invalid until date: %v", err)), nil
 	}
 
 	opt := &gitlab.ListCommitsOptions{
@@ -100,14 +109,14 @@ func listCommitsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 		RefName: gitlab.Ptr(ref),
 	}
 
-	commits, _, err := util.GitlabClient().Commits.ListCommits(projectID, opt)
+	commits, _, err := util.GitlabClient().Commits.ListCommits(args.ProjectPath, opt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list commits: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("failed to list commits: %v", err)), nil
 	}
 
 	var result strings.Builder
 	result.WriteString(fmt.Sprintf("Commits for project %s between %s and %s (ref: %s):\n\n",
-		projectID, since, until, ref))
+		args.ProjectPath, args.Since, until, ref))
 
 	for _, commit := range commits {
 		result.WriteString(fmt.Sprintf("Commit: %s\n", commit.ID))
@@ -127,13 +136,10 @@ func listCommitsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func getCommitDetailsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	projectID := request.Params.Arguments["project_path"].(string)
-	commitSHA := request.Params.Arguments["commit_sha"].(string)
-
-	commit, _, err := util.GitlabClient().Commits.GetCommit(projectID, commitSHA, nil)
+func getCommitDetailsHandler(ctx context.Context, request mcp.CallToolRequest, args GetCommitDetailsArgs) (*mcp.CallToolResult, error) {
+	commit, _, err := util.GitlabClient().Commits.GetCommit(args.ProjectPath, args.CommitSHA, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get commit details: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("failed to get commit details: %v", err)), nil
 	}
 
 	opt := &gitlab.GetCommitDiffOptions{
@@ -142,9 +148,9 @@ func getCommitDetailsHandler(ctx context.Context, request mcp.CallToolRequest) (
 		},
 	}
 
-	diffs, _, err := util.GitlabClient().Commits.GetCommitDiff(projectID, commitSHA, opt)
+	diffs, _, err := util.GitlabClient().Commits.GetCommitDiff(args.ProjectPath, args.CommitSHA, opt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get commit diffs: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("failed to get commit diffs: %v", err)), nil
 	}
 
 	var result strings.Builder
