@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0](https://github.com/nguyenvanduocit/gitlab-mcp/compare/v1.2.0...v1.3.0) (2025-06-11)
+
+
+### Features
+
+* implement much more tools ([3a17676](https://github.com/nguyenvanduocit/gitlab-mcp/commit/3a17676e844551f5a2c7dcd93a9bb61021e08778))
+* update dependencies and enhance GitLab tool functionality ([5fafcaf](https://github.com/nguyenvanduocit/gitlab-mcp/commit/5fafcaf26ed03a21545ff4e01134b89b124ab770))
+
 ## [1.2.0](https://github.com/nguyenvanduocit/gitlab-mcp/compare/v1.1.0...v1.2.0) (2025-04-18)
 
 
