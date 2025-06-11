@@ -83,9 +83,13 @@ func main() {
 	tools.RegisterMergeRequestTools(mcpServer)
 	tools.RegisterRepositoryTools(mcpServer)
 	tools.RegisterPipelineTools(mcpServer)
+	tools.RegisterJobTools(mcpServer)
 	tools.RegisterUserTools(mcpServer)
 	tools.RegisterGroupTools(mcpServer)
+	tools.RegisterVariableTools(mcpServer)
 	tools.RegisterFlowTools(mcpServer)
+	tools.RegisterDeploymentTools(mcpServer)
+	tools.RegisterSearchTools(mcpServer)
 
 	if *httpPort != "" {
 		fmt.Println()

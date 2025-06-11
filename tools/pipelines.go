@@ -21,6 +21,12 @@ type GetPipelineArgs struct {
 	PipelineID  float64 `json:"pipeline_id"`
 }
 
+type TriggerPipelineArgs struct {
+	ProjectPath string            `json:"project_path"`
+	Ref         string            `json:"ref"`
+	Variables   map[string]string `json:"variables,omitempty"`
+}
+
 func RegisterPipelineTools(s *server.MCPServer) {
 	pipelineTool := mcp.NewTool("list_pipelines",
 		mcp.WithDescription("List pipelines for a GitLab project"),
@@ -35,6 +41,14 @@ func RegisterPipelineTools(s *server.MCPServer) {
 		mcp.WithNumber("pipeline_id", mcp.Required(), mcp.Description("Pipeline ID")),
 	)
 	s.AddTool(getPipelineTool, mcp.NewTypedToolHandler(getPipelineHandler))
+
+	triggerPipelineTool := mcp.NewTool("trigger_pipeline",
+		mcp.WithDescription("Trigger a new pipeline on a specific branch with optional variables"),
+		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
+		mcp.WithString("ref", mcp.Required(), mcp.Description("Branch, tag, or commit SHA to trigger pipeline on")),
+		mcp.WithObject("variables", mcp.Description("Optional variables to pass to the pipeline (key-value pairs)")),
+	)
+	s.AddTool(triggerPipelineTool, mcp.NewTypedToolHandler(triggerPipelineHandler))
 }
 
 func listPipelinesHandler(ctx context.Context, request mcp.CallToolRequest, args ListPipelinesArgs) (*mcp.CallToolResult, error) {
@@ -91,6 +105,47 @@ func getPipelineHandler(ctx context.Context, request mcp.CallToolRequest, args G
 	result.WriteString(fmt.Sprintf("Duration: %d seconds\n", pipeline.Duration))
 	result.WriteString(fmt.Sprintf("Coverage: %s\n", pipeline.Coverage))
 	result.WriteString(fmt.Sprintf("URL: %s\n", pipeline.WebURL))
+
+	return mcp.NewToolResultText(result.String()), nil
+}
+
+func triggerPipelineHandler(ctx context.Context, request mcp.CallToolRequest, args TriggerPipelineArgs) (*mcp.CallToolResult, error) {
+	opt := &gitlab.CreatePipelineOptions{
+		Ref: gitlab.Ptr(args.Ref),
+	}
+
+	// Add variables if provided
+	if len(args.Variables) > 0 {
+		var variables []*gitlab.PipelineVariableOptions
+		for key, value := range args.Variables {
+			variables = append(variables, &gitlab.PipelineVariableOptions{
+				Key:   gitlab.Ptr(key),
+				Value: gitlab.Ptr(value),
+			})
+		}
+		opt.Variables = &variables
+	}
+
+	pipeline, _, err := util.GitlabClient().Pipelines.CreatePipeline(args.ProjectPath, opt)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to trigger pipeline: %v", err)), nil
+	}
+
+	var result strings.Builder
+	result.WriteString(fmt.Sprintf("Pipeline triggered successfully!\n\n"))
+	result.WriteString(fmt.Sprintf("Pipeline #%d\n", pipeline.ID))
+	result.WriteString(fmt.Sprintf("Status: %s\n", pipeline.Status))
+	result.WriteString(fmt.Sprintf("Ref: %s\n", pipeline.Ref))
+	result.WriteString(fmt.Sprintf("SHA: %s\n", pipeline.SHA))
+	result.WriteString(fmt.Sprintf("Created: %s\n", pipeline.CreatedAt.Format("2006-01-02 15:04:05")))
+	result.WriteString(fmt.Sprintf("URL: %s\n", pipeline.WebURL))
+
+	if len(args.Variables) > 0 {
+		result.WriteString(fmt.Sprintf("\nVariables passed:\n"))
+		for key, value := range args.Variables {
+			result.WriteString(fmt.Sprintf("  %s: %s\n", key, value))
+		}
+	}
 
 	return mcp.NewToolResultText(result.String()), nil
 } 
