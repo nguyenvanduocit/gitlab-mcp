@@ -19,8 +19,8 @@ type ListUserEventsArgs struct {
 }
 
 func RegisterUserTools(s *server.MCPServer) {
-	userEventsTool := mcp.NewTool("list_user_events",
-		mcp.WithDescription("List GitLab user events within a date range"),
+	userEventsTool := mcp.NewTool("list_user_contribution_events",
+		mcp.WithDescription("List GitLab user contribution events within a date range"),
 		mcp.WithString("username", mcp.Required(), mcp.Description("GitLab username")),
 		mcp.WithString("since", mcp.Required(), mcp.Description("Start date (YYYY-MM-DD)")),
 		mcp.WithString("until", mcp.Description("End date (YYYY-MM-DD). If not provided, defaults to current date")),

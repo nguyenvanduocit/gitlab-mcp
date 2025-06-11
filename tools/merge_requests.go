@@ -41,6 +41,69 @@ type CreateMergeRequestArgs struct {
 	Description  string `json:"description"`
 }
 
+type AcceptMergeRequestArgs struct {
+	ProjectPath             string `json:"project_path"`
+	MrIID                   string `json:"mr_iid"`
+	MergeCommitMessage      string `json:"merge_commit_message,omitempty"`
+	SquashCommitMessage     string `json:"squash_commit_message,omitempty"`
+	Squash                  bool   `json:"squash,omitempty"`
+	ShouldRemoveSourceBranch bool  `json:"should_remove_source_branch,omitempty"`
+	MergeWhenPipelineSucceeds bool  `json:"merge_when_pipeline_succeeds,omitempty"`
+}
+
+type UpdateMergeRequestArgs struct {
+	ProjectPath      string `json:"project_path"`
+	MrIID           string `json:"mr_iid"`
+	Title           string `json:"title,omitempty"`
+	Description     string `json:"description,omitempty"`
+	TargetBranch    string `json:"target_branch,omitempty"`
+	StateEvent      string `json:"state_event,omitempty"`
+	AssigneeID      int    `json:"assignee_id,omitempty"`
+	MilestoneID     int    `json:"milestone_id,omitempty"`
+	Labels          string `json:"labels,omitempty"`
+	RemoveSourceBranch bool `json:"remove_source_branch,omitempty"`
+	Squash          bool   `json:"squash,omitempty"`
+	DiscussionLocked bool  `json:"discussion_locked,omitempty"`
+}
+
+type GetMRApprovalsArgs struct {
+	ProjectPath string `json:"project_path"`
+	MrIID       string `json:"mr_iid"`
+}
+
+type GetMRParticipantsArgs struct {
+	ProjectPath string `json:"project_path"`
+	MrIID       string `json:"mr_iid"`
+}
+
+type GetMRPipelinesArgs struct {
+	ProjectPath string `json:"project_path"`
+	MrIID       string `json:"mr_iid"`
+}
+
+type GetMRCommitsArgs struct {
+	ProjectPath string `json:"project_path"`
+	MrIID       string `json:"mr_iid"`
+}
+
+type CreateMRPipelineArgs struct {
+	ProjectPath string `json:"project_path"`
+	MrIID       string `json:"mr_iid"`
+}
+
+type RebaseMRArgs struct {
+	ProjectPath string `json:"project_path"`
+	MrIID       string `json:"mr_iid"`
+	SkipCI      bool   `json:"skip_ci,omitempty"`
+}
+
+type GetMRChangesArgs struct {
+	ProjectPath    string `json:"project_path"`
+	MrIID          string `json:"mr_iid"`
+	AccessRawDiffs bool   `json:"access_raw_diffs,omitempty"`
+	Unidiff        bool   `json:"unidiff,omitempty"`
+}
+
 func RegisterMergeRequestTools(s *server.MCPServer) {
 	mrListTool := mcp.NewTool("list_mrs",
 		mcp.WithDescription("List merge requests"),
@@ -76,12 +139,50 @@ func RegisterMergeRequestTools(s *server.MCPServer) {
 		mcp.WithString("description", mcp.Description("Merge request description")),
 	)
 
+	getMRPipelinesTool := mcp.NewTool("get_mr_pipelines",
+		mcp.WithDescription("Get merge request CI/CD pipelines"),
+		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
+		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
+	)
+
+	getMRCommitsTool := mcp.NewTool("get_mr_commits",
+		mcp.WithDescription("Get merge request commits"),
+		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
+		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
+	)
+
+	createMRPipelineTool := mcp.NewTool("create_mr_pipeline",
+		mcp.WithDescription("Create a new pipeline for a merge request"),
+		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
+		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
+	)
+
+	rebaseMRTool := mcp.NewTool("rebase_mr",
+		mcp.WithDescription("Rebase a merge request"),
+		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
+		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
+		mcp.WithBoolean("skip_ci", mcp.Description("Skip CI for rebase")),
+	)
+
+	getMRChangesTool := mcp.NewTool("get_mr_changes",
+		mcp.WithDescription("Get merge request changes (deprecated, use get_mr_details instead)"),
+		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
+		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
+		mcp.WithBoolean("access_raw_diffs", mcp.Description("Access raw diffs")),
+		mcp.WithBoolean("unidiff", mcp.Description("Show unified diff format")),
+	)
+
+	// Register all tools
 	s.AddTool(mrListTool, mcp.NewTypedToolHandler(listMergeRequestsHandler))
 	s.AddTool(mrDetailsTool, mcp.NewTypedToolHandler(getMergeRequestHandler))
 	s.AddTool(mrCommentTool, mcp.NewTypedToolHandler(commentOnMergeRequestHandler))
 	s.AddTool(listMRCommentsTool, mcp.NewTypedToolHandler(listMRCommentsHandler))
 	s.AddTool(createMRTool, mcp.NewTypedToolHandler(createMergeRequestHandler))
-
+	s.AddTool(getMRPipelinesTool, mcp.NewTypedToolHandler(getMRPipelinesHandler))
+	s.AddTool(getMRCommitsTool, mcp.NewTypedToolHandler(getMRCommitsHandler))
+	s.AddTool(createMRPipelineTool, mcp.NewTypedToolHandler(createMRPipelineHandler))
+	s.AddTool(rebaseMRTool, mcp.NewTypedToolHandler(rebaseMRHandler))
+	s.AddTool(getMRChangesTool, mcp.NewTypedToolHandler(getMRChangesHandler))
 }
 
 func listMergeRequestsHandler(ctx context.Context, request mcp.CallToolRequest, args ListMergeRequestsArgs) (*mcp.CallToolResult, error) {
@@ -340,6 +441,181 @@ func createMergeRequestHandler(ctx context.Context, request mcp.CallToolRequest,
 		result.WriteString("\nDescription:\n")
 		result.WriteString(mr.Description)
 	}
+
+	return mcp.NewToolResultText(result.String()), nil
+}
+
+func getMRPipelinesHandler(ctx context.Context, request mcp.CallToolRequest, args GetMRPipelinesArgs) (*mcp.CallToolResult, error) {
+	mrIID, err := strconv.Atoi(args.MrIID)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid mr_iid: %v", err)), nil
+	}
+
+	pipelines, _, err := util.GitlabClient().MergeRequests.ListMergeRequestPipelines(args.ProjectPath, mrIID)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to get merge request pipelines: %v", err)), nil
+	}
+
+	var result strings.Builder
+	result.WriteString(fmt.Sprintf("Pipelines for Merge Request !%d:\n\n", mrIID))
+
+	for _, pipeline := range pipelines {
+		result.WriteString(fmt.Sprintf("Pipeline ID: %d\n", pipeline.ID))
+		result.WriteString(fmt.Sprintf("Status: %s\n", pipeline.Status))
+		result.WriteString(fmt.Sprintf("Ref: %s\n", pipeline.Ref))
+		result.WriteString(fmt.Sprintf("SHA: %s\n", pipeline.SHA))
+		if pipeline.CreatedAt != nil {
+			result.WriteString(fmt.Sprintf("Created: %s\n", pipeline.CreatedAt.Format("2006-01-02 15:04:05")))
+		}
+		if pipeline.UpdatedAt != nil {
+			result.WriteString(fmt.Sprintf("Updated: %s\n", pipeline.UpdatedAt.Format("2006-01-02 15:04:05")))
+		}
+		if pipeline.WebURL != "" {
+			result.WriteString(fmt.Sprintf("URL: %s\n", pipeline.WebURL))
+		}
+		result.WriteString("\n")
+	}
+
+	if len(pipelines) == 0 {
+		result.WriteString("No pipelines found for this merge request.\n")
+	}
+
+	return mcp.NewToolResultText(result.String()), nil
+}
+
+func getMRCommitsHandler(ctx context.Context, request mcp.CallToolRequest, args GetMRCommitsArgs) (*mcp.CallToolResult, error) {
+	mrIID, err := strconv.Atoi(args.MrIID)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid mr_iid: %v", err)), nil
+	}
+
+	commits, _, err := util.GitlabClient().MergeRequests.GetMergeRequestCommits(args.ProjectPath, mrIID, nil)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to get merge request commits: %v", err)), nil
+	}
+
+	var result strings.Builder
+	result.WriteString(fmt.Sprintf("Commits for Merge Request !%d:\n\n", mrIID))
+
+	for _, commit := range commits {
+		result.WriteString(fmt.Sprintf("Commit: %s\n", commit.ID))
+		result.WriteString(fmt.Sprintf("Short ID: %s\n", commit.ShortID))
+		result.WriteString(fmt.Sprintf("Title: %s\n", commit.Title))
+		if commit.AuthorName != "" {
+			result.WriteString(fmt.Sprintf("Author: %s <%s>\n", commit.AuthorName, commit.AuthorEmail))
+		}
+		if commit.CommitterName != "" {
+			result.WriteString(fmt.Sprintf("Committer: %s <%s>\n", commit.CommitterName, commit.CommitterEmail))
+		}
+		if commit.CreatedAt != nil {
+			result.WriteString(fmt.Sprintf("Created: %s\n", commit.CreatedAt.Format("2006-01-02 15:04:05")))
+		}
+		if commit.CommittedDate != nil {
+			result.WriteString(fmt.Sprintf("Committed: %s\n", commit.CommittedDate.Format("2006-01-02 15:04:05")))
+		}
+		if commit.AuthoredDate != nil {
+			result.WriteString(fmt.Sprintf("Authored: %s\n", commit.AuthoredDate.Format("2006-01-02 15:04:05")))
+		}
+		if commit.Message != "" {
+			result.WriteString(fmt.Sprintf("Message:\n%s\n", commit.Message))
+		}
+		if commit.WebURL != "" {
+			result.WriteString(fmt.Sprintf("URL: %s\n", commit.WebURL))
+		}
+		result.WriteString("\n")
+	}
+
+	if len(commits) == 0 {
+		result.WriteString("No commits found for this merge request.\n")
+	}
+
+	return mcp.NewToolResultText(result.String()), nil
+}
+
+func createMRPipelineHandler(ctx context.Context, request mcp.CallToolRequest, args CreateMRPipelineArgs) (*mcp.CallToolResult, error) {
+	mrIID, err := strconv.Atoi(args.MrIID)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid mr_iid: %v", err)), nil
+	}
+
+	pipeline, _, err := util.GitlabClient().MergeRequests.CreateMergeRequestPipeline(args.ProjectPath, mrIID)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to create merge request pipeline: %v", err)), nil
+	}
+
+	var result strings.Builder
+	result.WriteString("Pipeline created successfully!\n\n")
+	result.WriteString(fmt.Sprintf("Pipeline ID: %d\n", pipeline.ID))
+	result.WriteString(fmt.Sprintf("Status: %s\n", pipeline.Status))
+	result.WriteString(fmt.Sprintf("Ref: %s\n", pipeline.Ref))
+	result.WriteString(fmt.Sprintf("SHA: %s\n", pipeline.SHA))
+	if pipeline.CreatedAt != nil {
+		result.WriteString(fmt.Sprintf("Created: %s\n", pipeline.CreatedAt.Format("2006-01-02 15:04:05")))
+	}
+	if pipeline.WebURL != "" {
+		result.WriteString(fmt.Sprintf("URL: %s\n", pipeline.WebURL))
+	}
+
+	return mcp.NewToolResultText(result.String()), nil
+}
+
+func rebaseMRHandler(ctx context.Context, request mcp.CallToolRequest, args RebaseMRArgs) (*mcp.CallToolResult, error) {
+	mrIID, err := strconv.Atoi(args.MrIID)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid mr_iid: %v", err)), nil
+	}
+
+	opt := &gitlab.RebaseMergeRequestOptions{
+		SkipCI: &args.SkipCI,
+	}
+
+	_, err = util.GitlabClient().MergeRequests.RebaseMergeRequest(args.ProjectPath, mrIID, opt)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to rebase merge request: %v", err)), nil
+	}
+
+	result := fmt.Sprintf("Merge Request !%d has been successfully rebased.\n", mrIID)
+	if args.SkipCI {
+		result += "CI pipeline was skipped for this rebase.\n"
+	}
+
+	return mcp.NewToolResultText(result), nil
+}
+
+func getMRChangesHandler(ctx context.Context, request mcp.CallToolRequest, args GetMRChangesArgs) (*mcp.CallToolResult, error) {
+	mrIID, err := strconv.Atoi(args.MrIID)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid mr_iid: %v", err)), nil
+	}
+
+	opt := &gitlab.GetMergeRequestChangesOptions{
+		AccessRawDiffs: &args.AccessRawDiffs,
+		Unidiff:        &args.Unidiff,
+	}
+
+	mr, _, err := util.GitlabClient().MergeRequests.GetMergeRequestChanges(args.ProjectPath, mrIID, opt)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to get merge request changes: %v", err)), nil
+	}
+
+	var result strings.Builder
+	result.WriteString(fmt.Sprintf("Changes for Merge Request !%d: %s\n", mr.IID, mr.Title))
+	result.WriteString(fmt.Sprintf("Author: %s\n", mr.Author.Username))
+	result.WriteString(fmt.Sprintf("Source Branch: %s\n", mr.SourceBranch))
+	result.WriteString(fmt.Sprintf("Target Branch: %s\n", mr.TargetBranch))
+	result.WriteString(fmt.Sprintf("State: %s\n", mr.State))
+	if mr.ChangesCount != "" {
+		result.WriteString(fmt.Sprintf("Changes Count: %s\n", mr.ChangesCount))
+	}
+	result.WriteString("\n")
+
+	if mr.Description != "" {
+		result.WriteString("Description:\n")
+		result.WriteString(mr.Description)
+		result.WriteString("\n\n")
+	}
+
+	result.WriteString("Note: This endpoint is deprecated. Consider using 'get_mr_details' instead for detailed changes information.\n")
 
 	return mcp.NewToolResultText(result.String()), nil
 } 
