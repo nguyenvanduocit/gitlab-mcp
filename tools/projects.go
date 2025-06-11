@@ -10,6 +10,15 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
+type ListProjectsArgs struct {
+	GroupID string `json:"group_id"`
+	Search  string `json:"search"`
+}
+
+type GetProjectArgs struct {
+	ProjectPath string `json:"project_path"`
+}
+
 func RegisterProjectTools(s *server.MCPServer) {
 	listProjectsTool := mcp.NewTool("list_projects",
 		mcp.WithDescription("List GitLab projects"),
@@ -22,13 +31,11 @@ func RegisterProjectTools(s *server.MCPServer) {
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
 	)
 
-	s.AddTool(listProjectsTool, util.ErrorGuard(listProjectsHandler))
-	s.AddTool(projectTool, util.ErrorGuard(getProjectHandler))
+	s.AddTool(listProjectsTool, mcp.NewTypedToolHandler(listProjectsHandler))
+	s.AddTool(projectTool, mcp.NewTypedToolHandler(getProjectHandler))
 }
 
-func listProjectsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	groupID := request.Params.Arguments["group_id"].(string)
-
+func listProjectsHandler(ctx context.Context, request mcp.CallToolRequest, args ListProjectsArgs) (*mcp.CallToolResult, error) {
 	opt := &gitlab.ListGroupProjectsOptions{
 		Archived: gitlab.Ptr(false),
 		OrderBy:  gitlab.Ptr("last_activity_at"),
@@ -38,13 +45,13 @@ func listProjectsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp
 		},
 	}
 
-	if search, ok := request.Params.Arguments["search"]; ok {
-		opt.Search = gitlab.Ptr(search.(string))
+	if args.Search != "" {
+		opt.Search = gitlab.Ptr(args.Search)
 	}
 
-	projects, _, err := util.GitlabClient().Groups.ListGroupProjects(groupID, opt)
+	projects, _, err := util.GitlabClient().Groups.ListGroupProjects(args.GroupID, opt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to search projects: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("failed to search projects: %v", err)), nil
 	}
 
 	var result string
@@ -56,25 +63,23 @@ func listProjectsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp
 	return mcp.NewToolResultText(result), nil
 }
 
-func getProjectHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	projectID := request.Params.Arguments["project_path"].(string)
-
+func getProjectHandler(ctx context.Context, request mcp.CallToolRequest, args GetProjectArgs) (*mcp.CallToolResult, error) {
 	// Get project details
-	project, _, err := util.GitlabClient().Projects.GetProject(projectID, nil)
+	project, _, err := util.GitlabClient().Projects.GetProject(args.ProjectPath, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get project: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("failed to get project: %v", err)), nil
 	}
 
 	// Get branches
-	branches, _, err := util.GitlabClient().Branches.ListBranches(projectID, nil)
+	branches, _, err := util.GitlabClient().Branches.ListBranches(args.ProjectPath, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list branches: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("failed to list branches: %v", err)), nil
 	}
 
 	// Get tags
-	tags, _, err := util.GitlabClient().Tags.ListTags(projectID, nil)
+	tags, _, err := util.GitlabClient().Tags.ListTags(args.ProjectPath, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list tags: %v", err)
+		return mcp.NewToolResultError(fmt.Sprintf("failed to list tags: %v", err)), nil
 	}
 
 	// Build basic project info
