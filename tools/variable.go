@@ -11,100 +11,68 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
-type ListGroupVariablesArgs struct {
-	GroupID string `json:"group_id"`
-}
-
-type GetGroupVariableArgs struct {
-	GroupID string `json:"group_id"`
-	Key     string `json:"key"`
-}
-
-type CreateGroupVariableArgs struct {
-	GroupID           string `json:"group_id"`
-	Key               string `json:"key"`
-	Value             string `json:"value"`
-	VariableType      string `json:"variable_type,omitempty"`      // env_var or file
-	Protected         bool   `json:"protected,omitempty"`
-	Masked            bool   `json:"masked,omitempty"`
-	Raw               bool   `json:"raw,omitempty"`
-	EnvironmentScope  string `json:"environment_scope,omitempty"`
-	Description       string `json:"description,omitempty"`
-}
-
-type UpdateGroupVariableArgs struct {
-	GroupID           string `json:"group_id"`
-	Key               string `json:"key"`
-	Value             string `json:"value,omitempty"`
-	VariableType      string `json:"variable_type,omitempty"`      // env_var or file
-	Protected         *bool  `json:"protected,omitempty"`
-	Masked            *bool  `json:"masked,omitempty"`
-	Raw               *bool  `json:"raw,omitempty"`
-	EnvironmentScope  string `json:"environment_scope,omitempty"`
-	Description       string `json:"description,omitempty"`
-}
-
-type RemoveGroupVariableArgs struct {
-	GroupID string `json:"group_id"`
-	Key     string `json:"key"`
+// GroupVariableArgs defines the consolidated arguments for all group variable operations
+type GroupVariableArgs struct {
+	Action            string            `json:"action" validate:"required,oneof=list get create update remove"`
+	GroupID           string            `json:"group_id" validate:"required"`
+	Key               string            `json:"key" validate:"required_unless=Action list"`
+	Value             string            `json:"value" validate:"required_if=Action create"`
+	VariableType      string            `json:"variable_type" validate:"omitempty,oneof=env_var file"`
+	Protected         *bool             `json:"protected"`
+	Masked            *bool             `json:"masked"`
+	Raw               *bool             `json:"raw"`
+	EnvironmentScope  string            `json:"environment_scope"`
+	Description       string            `json:"description"`
 }
 
 func RegisterVariableTools(s *server.MCPServer) {
-	// List group variables
-	listVariablesTool := mcp.NewTool("list_group_variables",
-		mcp.WithDescription("List all variables in a GitLab group"),
-		mcp.WithString("group_id", mcp.Required(), mcp.Description("GitLab group ID or path")),
+	// Consolidated group variable tool
+	groupVariableTool := mcp.NewTool("manage_group_variable",
+		mcp.WithDescription("Manage GitLab group variables with different actions: list, get, create, update, remove"),
+		mcp.WithString("action", 
+			mcp.Required(), 
+			mcp.Description("Action to perform: list, get, create, update, remove")),
+		mcp.WithString("group_id", 
+			mcp.Required(), 
+			mcp.Description("GitLab group ID or path")),
+		mcp.WithString("key", 
+			mcp.Description("Variable key name (required for get, create, update, remove actions)")),
+		mcp.WithString("value", 
+			mcp.Description("Variable value (required for create action, optional for update)")),
+		mcp.WithString("variable_type", 
+			mcp.Description("Variable type: env_var (default) or file")),
+		mcp.WithBoolean("protected", 
+			mcp.Description("Whether the variable is protected")),
+		mcp.WithBoolean("masked", 
+			mcp.Description("Whether the variable is masked")),
+		mcp.WithBoolean("raw", 
+			mcp.Description("Whether the variable is raw")),
+		mcp.WithString("environment_scope", 
+			mcp.Description("Environment scope (default: *)")),
+		mcp.WithString("description", 
+			mcp.Description("Variable description")),
 	)
-	s.AddTool(listVariablesTool, mcp.NewTypedToolHandler(listGroupVariablesHandler))
-
-	// Get specific group variable
-	getVariableTool := mcp.NewTool("get_group_variable",
-		mcp.WithDescription("Get a specific variable from a GitLab group"),
-		mcp.WithString("group_id", mcp.Required(), mcp.Description("GitLab group ID or path")),
-		mcp.WithString("key", mcp.Required(), mcp.Description("Variable key name")),
-	)
-	s.AddTool(getVariableTool, mcp.NewTypedToolHandler(getGroupVariableHandler))
-
-	// Create group variable
-	createVariableTool := mcp.NewTool("create_group_variable",
-		mcp.WithDescription("Create a new variable in a GitLab group"),
-		mcp.WithString("group_id", mcp.Required(), mcp.Description("GitLab group ID or path")),
-		mcp.WithString("key", mcp.Required(), mcp.Description("Variable key name")),
-		mcp.WithString("value", mcp.Required(), mcp.Description("Variable value")),
-		mcp.WithString("variable_type", mcp.Description("Variable type: env_var (default) or file")),
-		mcp.WithBoolean("protected", mcp.Description("Whether the variable is protected (default: false)")),
-		mcp.WithBoolean("masked", mcp.Description("Whether the variable is masked (default: false)")),
-		mcp.WithBoolean("raw", mcp.Description("Whether the variable is raw (default: false)")),
-		mcp.WithString("environment_scope", mcp.Description("Environment scope (default: *)")),
-		mcp.WithString("description", mcp.Description("Variable description")),
-	)
-	s.AddTool(createVariableTool, mcp.NewTypedToolHandler(createGroupVariableHandler))
-
-	// Update group variable
-	updateVariableTool := mcp.NewTool("update_group_variable",
-		mcp.WithDescription("Update an existing variable in a GitLab group"),
-		mcp.WithString("group_id", mcp.Required(), mcp.Description("GitLab group ID or path")),
-		mcp.WithString("key", mcp.Required(), mcp.Description("Variable key name")),
-		mcp.WithString("value", mcp.Description("New variable value")),
-		mcp.WithString("variable_type", mcp.Description("Variable type: env_var or file")),
-		mcp.WithBoolean("protected", mcp.Description("Whether the variable is protected")),
-		mcp.WithBoolean("masked", mcp.Description("Whether the variable is masked")),
-		mcp.WithBoolean("raw", mcp.Description("Whether the variable is raw")),
-		mcp.WithString("environment_scope", mcp.Description("Environment scope")),
-		mcp.WithString("description", mcp.Description("Variable description")),
-	)
-	s.AddTool(updateVariableTool, mcp.NewTypedToolHandler(updateGroupVariableHandler))
-
-	// Remove group variable
-	removeVariableTool := mcp.NewTool("remove_group_variable",
-		mcp.WithDescription("Remove a variable from a GitLab group"),
-		mcp.WithString("group_id", mcp.Required(), mcp.Description("GitLab group ID or path")),
-		mcp.WithString("key", mcp.Required(), mcp.Description("Variable key name to remove")),
-	)
-	s.AddTool(removeVariableTool, mcp.NewTypedToolHandler(removeGroupVariableHandler))
+	s.AddTool(groupVariableTool, mcp.NewTypedToolHandler(groupVariableHandler))
 }
 
-func listGroupVariablesHandler(ctx context.Context, request mcp.CallToolRequest, args ListGroupVariablesArgs) (*mcp.CallToolResult, error) {
+func groupVariableHandler(ctx context.Context, request mcp.CallToolRequest, args GroupVariableArgs) (*mcp.CallToolResult, error) {
+	switch args.Action {
+	case "list":
+		return listGroupVariables(args)
+	case "get":
+		return getGroupVariable(args)
+	case "create":
+		return createGroupVariable(args)
+	case "update":
+		return updateGroupVariable(args)
+	case "remove":
+		return removeGroupVariable(args)
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("invalid action: %s. Valid actions are: list, get, create, update, remove", args.Action)), nil
+	}
+}
+
+func listGroupVariables(args GroupVariableArgs) (*mcp.CallToolResult, error) {
 	opt := &gitlab.ListGroupVariablesOptions{}
 
 	variables, _, err := util.GitlabClient().GroupVariables.ListVariables(args.GroupID, opt)
@@ -145,7 +113,11 @@ func listGroupVariablesHandler(ctx context.Context, request mcp.CallToolRequest,
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func getGroupVariableHandler(ctx context.Context, request mcp.CallToolRequest, args GetGroupVariableArgs) (*mcp.CallToolResult, error) {
+func getGroupVariable(args GroupVariableArgs) (*mcp.CallToolResult, error) {
+	if args.Key == "" {
+		return mcp.NewToolResultError("key is required for get action"), nil
+	}
+
 	variable, _, err := util.GitlabClient().GroupVariables.GetVariable(args.GroupID, args.Key, nil)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to get group variable: %v", err)), nil
@@ -174,7 +146,14 @@ func getGroupVariableHandler(ctx context.Context, request mcp.CallToolRequest, a
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func createGroupVariableHandler(ctx context.Context, request mcp.CallToolRequest, args CreateGroupVariableArgs) (*mcp.CallToolResult, error) {
+func createGroupVariable(args GroupVariableArgs) (*mcp.CallToolResult, error) {
+	if args.Key == "" {
+		return mcp.NewToolResultError("key is required for create action"), nil
+	}
+	if args.Value == "" {
+		return mcp.NewToolResultError("value is required for create action"), nil
+	}
+
 	opt := &gitlab.CreateGroupVariableOptions{
 		Key:   gitlab.Ptr(args.Key),
 		Value: gitlab.Ptr(args.Value),
@@ -190,14 +169,14 @@ func createGroupVariableHandler(ctx context.Context, request mcp.CallToolRequest
 	}
 
 	// Set optional parameters
-	if args.Protected {
-		opt.Protected = gitlab.Ptr(args.Protected)
+	if args.Protected != nil {
+		opt.Protected = args.Protected
 	}
-	if args.Masked {
-		opt.Masked = gitlab.Ptr(args.Masked)
+	if args.Masked != nil {
+		opt.Masked = args.Masked
 	}
-	if args.Raw {
-		opt.Raw = gitlab.Ptr(args.Raw)
+	if args.Raw != nil {
+		opt.Raw = args.Raw
 	}
 	if args.EnvironmentScope != "" {
 		opt.EnvironmentScope = gitlab.Ptr(args.EnvironmentScope)
@@ -227,7 +206,11 @@ func createGroupVariableHandler(ctx context.Context, request mcp.CallToolRequest
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func updateGroupVariableHandler(ctx context.Context, request mcp.CallToolRequest, args UpdateGroupVariableArgs) (*mcp.CallToolResult, error) {
+func updateGroupVariable(args GroupVariableArgs) (*mcp.CallToolResult, error) {
+	if args.Key == "" {
+		return mcp.NewToolResultError("key is required for update action"), nil
+	}
+
 	opt := &gitlab.UpdateGroupVariableOptions{}
 
 	// Only set fields that were provided
@@ -278,7 +261,11 @@ func updateGroupVariableHandler(ctx context.Context, request mcp.CallToolRequest
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func removeGroupVariableHandler(ctx context.Context, request mcp.CallToolRequest, args RemoveGroupVariableArgs) (*mcp.CallToolResult, error) {
+func removeGroupVariable(args GroupVariableArgs) (*mcp.CallToolResult, error) {
+	if args.Key == "" {
+		return mcp.NewToolResultError("key is required for remove action"), nil
+	}
+
 	_, err := util.GitlabClient().GroupVariables.RemoveVariable(args.GroupID, args.Key, nil)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to remove group variable: %v", err)), nil

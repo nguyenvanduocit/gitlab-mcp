@@ -12,124 +12,128 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
-// Deploy Tokens related structs
-type ListProjectDeployTokensArgs struct {
-	ProjectPath string `json:"project_path"`
+// Complex typed structures for deploy tokens
+type ListAllDeployTokensArgs struct {
+	RandomString string `json:"random_string" validate:"required"` // Dummy parameter for no-parameter tools
 }
 
-type GetProjectDeployTokenArgs struct {
-	ProjectPath     string `json:"project_path"`
-	DeployTokenID   string `json:"deploy_token_id"`
+// Nested structures for complex typed tools
+type DeployTokenScope struct {
+	Type        string `json:"type" validate:"required,oneof=project group"`        // project or group
+	ProjectPath string `json:"project_path,omitempty" validate:"omitempty,min=1,max=255"` // Required for project scope
+	GroupID     string `json:"group_id,omitempty" validate:"omitempty,min=1,max=255"`     // Required for group scope
 }
 
-type CreateProjectDeployTokenArgs struct {
-	ProjectPath string   `json:"project_path"`
-	Name        string   `json:"name"`
-	ExpiresAt   string   `json:"expires_at,omitempty"` // ISO 8601 format
-	Username    string   `json:"username,omitempty"`
-	Scopes      []string `json:"scopes"`
+type DeployTokenCreateOptions struct {
+	Name      string   `json:"name" validate:"required,min=1,max=100"`                    // Token name
+	Username  string   `json:"username,omitempty" validate:"omitempty,min=1,max=100"`    // Optional username
+	ExpiresAt string   `json:"expires_at,omitempty" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"` // Optional expiration
+	Scopes    []string `json:"scopes" validate:"required,dive,oneof=read_repository read_registry write_registry read_package_registry write_package_registry"` // Required scopes
 }
 
-type DeleteProjectDeployTokenArgs struct {
-	ProjectPath   string `json:"project_path"`
-	DeployTokenID string `json:"deploy_token_id"`
+type DeployTokenIdentifier struct {
+	ID string `json:"id" validate:"required,numeric"` // Deploy token ID
 }
 
-type ListGroupDeployTokensArgs struct {
-	GroupID string `json:"group_id"`
-}
-
-type GetGroupDeployTokenArgs struct {
-	GroupID       string `json:"group_id"`
-	DeployTokenID string `json:"deploy_token_id"`
-}
-
-type CreateGroupDeployTokenArgs struct {
-	GroupID   string   `json:"group_id"`
-	Name      string   `json:"name"`
-	ExpiresAt string   `json:"expires_at,omitempty"` // ISO 8601 format
-	Username  string   `json:"username,omitempty"`
-	Scopes    []string `json:"scopes"`
-}
-
-type DeleteGroupDeployTokenArgs struct {
-	GroupID       string `json:"group_id"`
-	DeployTokenID string `json:"deploy_token_id"`
+type ManageDeployTokensArgs struct {
+	Action     string                     `json:"action" validate:"required,oneof=list get create delete"` // Action to perform
+	Scope      DeployTokenScope          `json:"scope"`                                                    // Scope configuration
+	TokenID    *DeployTokenIdentifier    `json:"token_id,omitempty"`                                      // For get/delete actions
+	CreateOpts *DeployTokenCreateOptions `json:"create_options,omitempty"`                               // For create action
 }
 
 func RegisterDeploymentTools(s *server.MCPServer) {
-	// Deploy Tokens Tools
+	// List all deploy tokens (admin only)
 	listAllDeployTokensTool := mcp.NewTool("list_all_deploy_tokens",
 		mcp.WithDescription("List all deploy tokens (requires administrator access)"),
+		mcp.WithString("random_string", 
+			mcp.Required(), 
+			mcp.Description("Dummy parameter for no-parameter tools")),
 	)
 
-	listProjectDeployTokensTool := mcp.NewTool("list_project_deploy_tokens",
-		mcp.WithDescription("List deploy tokens for a specific project"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project path (e.g., 'group/project')")),
+	// Complex typed deploy tokens management tool
+	manageDeployTokensTool := mcp.NewTool("manage_deploy_tokens",
+		mcp.WithDescription("Manage deploy tokens for projects or groups. Supports list, get, create, and delete operations."),
+		mcp.WithString("action", 
+			mcp.Required(), 
+			mcp.Description("Action to perform: list, get, create, delete")),
+		mcp.WithObject("scope",
+			mcp.Required(),
+			mcp.Description("Scope configuration for the deploy token operation"),
+			mcp.Properties(map[string]any{
+				"type": map[string]any{
+					"type":        "string",
+					"description": "Scope type: project or group",
+					"enum":        []string{"project", "group"},
+				},
+				"project_path": map[string]any{
+					"type":        "string",
+					"description": "Project path (required for project scope, e.g., 'group/project')",
+					"minLength":   1,
+					"maxLength":   255,
+				},
+				"group_id": map[string]any{
+					"type":        "string",
+					"description": "Group ID or path (required for group scope)",
+					"minLength":   1,
+					"maxLength":   255,
+				},
+			})),
+		mcp.WithObject("token_id",
+			mcp.Description("Deploy token identifier (required for get/delete actions)"),
+			mcp.Properties(map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "Deploy token ID",
+					"pattern":     "^[0-9]+$",
+				},
+			})),
+		mcp.WithObject("create_options",
+			mcp.Description("Options for creating a new deploy token (required for create action)"),
+			mcp.Properties(map[string]any{
+				"name": map[string]any{
+					"type":        "string",
+					"description": "Name for the deploy token",
+					"minLength":   1,
+					"maxLength":   100,
+				},
+				"username": map[string]any{
+					"type":        "string",
+					"description": "Username for the deploy token (optional)",
+					"minLength":   1,
+					"maxLength":   100,
+				},
+				"expires_at": map[string]any{
+					"type":        "string",
+					"description": "Expiration date in ISO 8601 format (optional)",
+					"format":      "date-time",
+				},
+				"scopes": map[string]any{
+					"type":        "array",
+					"description": "Array of scopes for the deploy token",
+					"items": map[string]any{
+						"type": "string",
+						"enum": []string{
+							"read_repository",
+							"read_registry", 
+							"write_registry",
+							"read_package_registry",
+							"write_package_registry",
+						},
+					},
+					"minItems": 1,
+				},
+			})),
 	)
 
-	getProjectDeployTokenTool := mcp.NewTool("get_project_deploy_token",
-		mcp.WithDescription("Get details of a specific project deploy token"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project path (e.g., 'group/project')")),
-		mcp.WithString("deploy_token_id", mcp.Required(), mcp.Description("Deploy token ID")),
-	)
-
-	createProjectDeployTokenTool := mcp.NewTool("create_project_deploy_token",
-		mcp.WithDescription("Create a new deploy token for a project"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project path (e.g., 'group/project')")),
-		mcp.WithString("name", mcp.Required(), mcp.Description("Name for the deploy token")),
-		mcp.WithString("expires_at", mcp.Description("Expiration date in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)")),
-		mcp.WithString("username", mcp.Description("Username for the deploy token")),
-		mcp.WithArray("scopes", mcp.Required(), mcp.Description("Array of scopes (read_repository, read_registry, write_registry, read_package_registry, write_package_registry)")),
-	)
-
-	deleteProjectDeployTokenTool := mcp.NewTool("delete_project_deploy_token",
-		mcp.WithDescription("Delete a deploy token from a project"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project path (e.g., 'group/project')")),
-		mcp.WithString("deploy_token_id", mcp.Required(), mcp.Description("Deploy token ID to delete")),
-	)
-
-	listGroupDeployTokensTool := mcp.NewTool("list_group_deploy_tokens",
-		mcp.WithDescription("List deploy tokens for a specific group"),
-		mcp.WithString("group_id", mcp.Required(), mcp.Description("Group ID or path")),
-	)
-
-	getGroupDeployTokenTool := mcp.NewTool("get_group_deploy_token",
-		mcp.WithDescription("Get details of a specific group deploy token"),
-		mcp.WithString("group_id", mcp.Required(), mcp.Description("Group ID or path")),
-		mcp.WithString("deploy_token_id", mcp.Required(), mcp.Description("Deploy token ID")),
-	)
-
-	createGroupDeployTokenTool := mcp.NewTool("create_group_deploy_token",
-		mcp.WithDescription("Create a new deploy token for a group"),
-		mcp.WithString("group_id", mcp.Required(), mcp.Description("Group ID or path")),
-		mcp.WithString("name", mcp.Required(), mcp.Description("Name for the deploy token")),
-		mcp.WithString("expires_at", mcp.Description("Expiration date in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)")),
-		mcp.WithString("username", mcp.Description("Username for the deploy token")),
-		mcp.WithArray("scopes", mcp.Required(), mcp.Description("Array of scopes (read_repository, read_registry, write_registry, read_package_registry, write_package_registry)")),
-	)
-
-	deleteGroupDeployTokenTool := mcp.NewTool("delete_group_deploy_token",
-		mcp.WithDescription("Delete a deploy token from a group"),
-		mcp.WithString("group_id", mcp.Required(), mcp.Description("Group ID or path")),
-		mcp.WithString("deploy_token_id", mcp.Required(), mcp.Description("Deploy token ID to delete")),
-	)
-
-	// Register Deploy Tokens handlers
+	// Register handlers
 	s.AddTool(listAllDeployTokensTool, mcp.NewTypedToolHandler(listAllDeployTokensHandler))
-	s.AddTool(listProjectDeployTokensTool, mcp.NewTypedToolHandler(listProjectDeployTokensHandler))
-	s.AddTool(getProjectDeployTokenTool, mcp.NewTypedToolHandler(getProjectDeployTokenHandler))
-	s.AddTool(createProjectDeployTokenTool, mcp.NewTypedToolHandler(createProjectDeployTokenHandler))
-	s.AddTool(deleteProjectDeployTokenTool, mcp.NewTypedToolHandler(deleteProjectDeployTokenHandler))
-	s.AddTool(listGroupDeployTokensTool, mcp.NewTypedToolHandler(listGroupDeployTokensHandler))
-	s.AddTool(getGroupDeployTokenTool, mcp.NewTypedToolHandler(getGroupDeployTokenHandler))
-	s.AddTool(createGroupDeployTokenTool, mcp.NewTypedToolHandler(createGroupDeployTokenHandler))
-	s.AddTool(deleteGroupDeployTokenTool, mcp.NewTypedToolHandler(deleteGroupDeployTokenHandler))
+	s.AddTool(manageDeployTokensTool, mcp.NewTypedToolHandler(manageDeployTokensHandler))
 }
 
-// Deploy Tokens Handlers
+// Handlers
 
-func listAllDeployTokensHandler(ctx context.Context, request mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, error) {
+func listAllDeployTokensHandler(ctx context.Context, request mcp.CallToolRequest, args ListAllDeployTokensArgs) (*mcp.CallToolResult, error) {
 	tokens, _, err := util.GitlabClient().DeployTokens.ListAllDeployTokens()
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to list deploy tokens: %v", err)), nil
@@ -152,190 +156,222 @@ func listAllDeployTokensHandler(ctx context.Context, request mcp.CallToolRequest
 	return mcp.NewToolResultText(result), nil
 }
 
-func listProjectDeployTokensHandler(ctx context.Context, request mcp.CallToolRequest, args ListProjectDeployTokensArgs) (*mcp.CallToolResult, error) {
-	tokens, _, err := util.GitlabClient().DeployTokens.ListProjectDeployTokens(args.ProjectPath, nil)
+func manageDeployTokensHandler(ctx context.Context, request mcp.CallToolRequest, args ManageDeployTokensArgs) (*mcp.CallToolResult, error) {
+	// Validate scope configuration
+	if args.Scope.Type != "project" && args.Scope.Type != "group" {
+		return mcp.NewToolResultError("scope.type must be either 'project' or 'group'"), nil
+	}
+
+	// Validate scope-specific parameters
+	if args.Scope.Type == "project" && args.Scope.ProjectPath == "" {
+		return mcp.NewToolResultError("scope.project_path is required for project scope"), nil
+	}
+	if args.Scope.Type == "group" && args.Scope.GroupID == "" {
+		return mcp.NewToolResultError("scope.group_id is required for group scope"), nil
+	}
+
+	// Validate action-specific parameters
+	if (args.Action == "get" || args.Action == "delete") && args.TokenID == nil {
+		return mcp.NewToolResultError("token_id is required for get/delete actions"), nil
+	}
+	if args.Action == "create" {
+		if args.CreateOpts == nil {
+			return mcp.NewToolResultError("create_options is required for create action"), nil
+		}
+		if args.CreateOpts.Name == "" {
+			return mcp.NewToolResultError("create_options.name is required for create action"), nil
+		}
+		if len(args.CreateOpts.Scopes) == 0 {
+			return mcp.NewToolResultError("create_options.scopes is required for create action"), nil
+		}
+	}
+
+	// Route to appropriate handler based on action
+	switch args.Action {
+	case "list":
+		return handleListDeployTokens(args)
+	case "get":
+		return handleGetDeployToken(args)
+	case "create":
+		return handleCreateDeployToken(args)
+	case "delete":
+		return handleDeleteDeployToken(args)
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("unsupported action: %s", args.Action)), nil
+	}
+}
+
+func handleListDeployTokens(args ManageDeployTokensArgs) (*mcp.CallToolResult, error) {
+	var result string
+	
+	if args.Scope.Type == "project" {
+		tokens, _, err := util.GitlabClient().DeployTokens.ListProjectDeployTokens(args.Scope.ProjectPath, nil)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to list project deploy tokens: %v", err)), nil
+		}
+		
+		result += fmt.Sprintf("Deploy tokens for project '%s' (%d tokens):\n\n", args.Scope.ProjectPath, len(tokens))
+		
+		for _, token := range tokens {
+			result += fmt.Sprintf("ID: %d\nName: %s\nUsername: %s\nRevoked: %t\nExpired: %t\nScopes: %v\n",
+				token.ID, token.Name, token.Username, token.Revoked, token.Expired, token.Scopes)
+			
+			if token.ExpiresAt != nil {
+				result += fmt.Sprintf("Expires: %s\n", token.ExpiresAt.Format("2006-01-02 15:04:05"))
+			}
+			
+			result += "\n"
+		}
+	} else { // group
+		tokens, _, err := util.GitlabClient().DeployTokens.ListGroupDeployTokens(args.Scope.GroupID, nil)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to list group deploy tokens: %v", err)), nil
+		}
+		
+		result += fmt.Sprintf("Deploy tokens for group '%s' (%d tokens):\n\n", args.Scope.GroupID, len(tokens))
+		
+		for _, token := range tokens {
+			result += fmt.Sprintf("ID: %d\nName: %s\nUsername: %s\nRevoked: %t\nExpired: %t\nScopes: %v\n",
+				token.ID, token.Name, token.Username, token.Revoked, token.Expired, token.Scopes)
+			
+			if token.ExpiresAt != nil {
+				result += fmt.Sprintf("Expires: %s\n", token.ExpiresAt.Format("2006-01-02 15:04:05"))
+			}
+			
+			result += "\n"
+		}
+	}
+
+	return mcp.NewToolResultText(result), nil
+}
+
+func handleGetDeployToken(args ManageDeployTokensArgs) (*mcp.CallToolResult, error) {
+	deployTokenID, err := strconv.Atoi(args.TokenID.ID)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to list project deploy tokens: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("invalid deploy token ID: %v", err)), nil
 	}
 
 	var result string
-	result += fmt.Sprintf("Deploy tokens for project '%s' (%d tokens):\n\n", args.ProjectPath, len(tokens))
 	
-	for _, token := range tokens {
-		result += fmt.Sprintf("ID: %d\nName: %s\nUsername: %s\nRevoked: %t\nExpired: %t\nScopes: %v\n",
+	if args.Scope.Type == "project" {
+		token, _, err := util.GitlabClient().DeployTokens.GetProjectDeployToken(args.Scope.ProjectPath, deployTokenID)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to get project deploy token: %v", err)), nil
+		}
+		
+		result = fmt.Sprintf("Project Deploy Token Details:\n\nID: %d\nName: %s\nUsername: %s\nRevoked: %t\nExpired: %t\nScopes: %v\n",
 			token.ID, token.Name, token.Username, token.Revoked, token.Expired, token.Scopes)
 		
 		if token.ExpiresAt != nil {
 			result += fmt.Sprintf("Expires: %s\n", token.ExpiresAt.Format("2006-01-02 15:04:05"))
 		}
-		
-		result += "\n"
-	}
-
-	return mcp.NewToolResultText(result), nil
-}
-
-func getProjectDeployTokenHandler(ctx context.Context, request mcp.CallToolRequest, args GetProjectDeployTokenArgs) (*mcp.CallToolResult, error) {
-	deployTokenID, err := strconv.Atoi(args.DeployTokenID)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("invalid deploy token ID: %v", err)), nil
-	}
-
-	token, _, err := util.GitlabClient().DeployTokens.GetProjectDeployToken(args.ProjectPath, deployTokenID)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to get deploy token: %v", err)), nil
-	}
-
-	result := fmt.Sprintf("Deploy Token Details:\n\nID: %d\nName: %s\nUsername: %s\nRevoked: %t\nExpired: %t\nScopes: %v\n",
-		token.ID, token.Name, token.Username, token.Revoked, token.Expired, token.Scopes)
-	
-	if token.ExpiresAt != nil {
-		result += fmt.Sprintf("Expires: %s\n", token.ExpiresAt.Format("2006-01-02 15:04:05"))
-	}
-
-	return mcp.NewToolResultText(result), nil
-}
-
-func createProjectDeployTokenHandler(ctx context.Context, request mcp.CallToolRequest, args CreateProjectDeployTokenArgs) (*mcp.CallToolResult, error) {
-	opt := &gitlab.CreateProjectDeployTokenOptions{
-		Name:   gitlab.Ptr(args.Name),
-		Scopes: &args.Scopes,
-	}
-
-	if args.ExpiresAt != "" {
-		expiresAt, err := time.Parse(time.RFC3339, args.ExpiresAt)
+	} else { // group
+		token, _, err := util.GitlabClient().DeployTokens.GetGroupDeployToken(args.Scope.GroupID, deployTokenID)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("invalid expires_at format: %v", err)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("failed to get group deploy token: %v", err)), nil
 		}
-		opt.ExpiresAt = &expiresAt
-	}
-
-	if args.Username != "" {
-		opt.Username = gitlab.Ptr(args.Username)
-	}
-
-	token, _, err := util.GitlabClient().DeployTokens.CreateProjectDeployToken(args.ProjectPath, opt)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to create deploy token: %v", err)), nil
-	}
-
-	result := fmt.Sprintf("✅ Deploy token created successfully for project '%s'!\n\nID: %d\nName: %s\nUsername: %s\nToken: %s\nScopes: %v\n",
-		args.ProjectPath, token.ID, token.Name, token.Username, token.Token, token.Scopes)
-	
-	if token.ExpiresAt != nil {
-		result += fmt.Sprintf("Expires: %s\n", token.ExpiresAt.Format("2006-01-02 15:04:05"))
-	}
-	
-	result += "\n⚠️  Important: Save the token value now. You won't be able to access it again!"
-
-	return mcp.NewToolResultText(result), nil
-}
-
-func deleteProjectDeployTokenHandler(ctx context.Context, request mcp.CallToolRequest, args DeleteProjectDeployTokenArgs) (*mcp.CallToolResult, error) {
-	deployTokenID, err := strconv.Atoi(args.DeployTokenID)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("invalid deploy token ID: %v", err)), nil
-	}
-
-	_, err = util.GitlabClient().DeployTokens.DeleteProjectDeployToken(args.ProjectPath, deployTokenID)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to delete deploy token: %v", err)), nil
-	}
-
-	result := fmt.Sprintf("✅ Deploy token %s deleted successfully from project '%s'", args.DeployTokenID, args.ProjectPath)
-	return mcp.NewToolResultText(result), nil
-}
-
-func listGroupDeployTokensHandler(ctx context.Context, request mcp.CallToolRequest, args ListGroupDeployTokensArgs) (*mcp.CallToolResult, error) {
-	tokens, _, err := util.GitlabClient().DeployTokens.ListGroupDeployTokens(args.GroupID, nil)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to list group deploy tokens: %v", err)), nil
-	}
-
-	var result string
-	result += fmt.Sprintf("Deploy tokens for group '%s' (%d tokens):\n\n", args.GroupID, len(tokens))
-	
-	for _, token := range tokens {
-		result += fmt.Sprintf("ID: %d\nName: %s\nUsername: %s\nRevoked: %t\nExpired: %t\nScopes: %v\n",
+		
+		result = fmt.Sprintf("Group Deploy Token Details:\n\nID: %d\nName: %s\nUsername: %s\nRevoked: %t\nExpired: %t\nScopes: %v\n",
 			token.ID, token.Name, token.Username, token.Revoked, token.Expired, token.Scopes)
 		
 		if token.ExpiresAt != nil {
 			result += fmt.Sprintf("Expires: %s\n", token.ExpiresAt.Format("2006-01-02 15:04:05"))
 		}
-		
-		result += "\n"
 	}
 
 	return mcp.NewToolResultText(result), nil
 }
 
-func getGroupDeployTokenHandler(ctx context.Context, request mcp.CallToolRequest, args GetGroupDeployTokenArgs) (*mcp.CallToolResult, error) {
-	deployTokenID, err := strconv.Atoi(args.DeployTokenID)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("invalid deploy token ID: %v", err)), nil
-	}
-
-	token, _, err := util.GitlabClient().DeployTokens.GetGroupDeployToken(args.GroupID, deployTokenID)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to get group deploy token: %v", err)), nil
-	}
-
-	result := fmt.Sprintf("Group Deploy Token Details:\n\nID: %d\nName: %s\nUsername: %s\nRevoked: %t\nExpired: %t\nScopes: %v\n",
-		token.ID, token.Name, token.Username, token.Revoked, token.Expired, token.Scopes)
+func handleCreateDeployToken(args ManageDeployTokensArgs) (*mcp.CallToolResult, error) {
+	var result string
 	
-	if token.ExpiresAt != nil {
-		result += fmt.Sprintf("Expires: %s\n", token.ExpiresAt.Format("2006-01-02 15:04:05"))
-	}
-
-	return mcp.NewToolResultText(result), nil
-}
-
-func createGroupDeployTokenHandler(ctx context.Context, request mcp.CallToolRequest, args CreateGroupDeployTokenArgs) (*mcp.CallToolResult, error) {
-	opt := &gitlab.CreateGroupDeployTokenOptions{
-		Name:   gitlab.Ptr(args.Name),
-		Scopes: &args.Scopes,
-	}
-
-	if args.ExpiresAt != "" {
-		expiresAt, err := time.Parse(time.RFC3339, args.ExpiresAt)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("invalid expires_at format: %v", err)), nil
+	if args.Scope.Type == "project" {
+		opt := &gitlab.CreateProjectDeployTokenOptions{
+			Name:   gitlab.Ptr(args.CreateOpts.Name),
+			Scopes: &args.CreateOpts.Scopes,
 		}
-		opt.ExpiresAt = &expiresAt
-	}
 
-	if args.Username != "" {
-		opt.Username = gitlab.Ptr(args.Username)
-	}
+		if args.CreateOpts.ExpiresAt != "" {
+			expiresAt, err := time.Parse(time.RFC3339, args.CreateOpts.ExpiresAt)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("invalid expires_at format: %v", err)), nil
+			}
+			opt.ExpiresAt = &expiresAt
+		}
 
-	token, _, err := util.GitlabClient().DeployTokens.CreateGroupDeployToken(args.GroupID, opt)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to create group deploy token: %v", err)), nil
-	}
+		if args.CreateOpts.Username != "" {
+			opt.Username = gitlab.Ptr(args.CreateOpts.Username)
+		}
 
-	result := fmt.Sprintf("✅ Deploy token created successfully for group '%s'!\n\nID: %d\nName: %s\nUsername: %s\nToken: %s\nScopes: %v\n",
-		args.GroupID, token.ID, token.Name, token.Username, token.Token, token.Scopes)
-	
-	if token.ExpiresAt != nil {
-		result += fmt.Sprintf("Expires: %s\n", token.ExpiresAt.Format("2006-01-02 15:04:05"))
+		token, _, err := util.GitlabClient().DeployTokens.CreateProjectDeployToken(args.Scope.ProjectPath, opt)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to create project deploy token: %v", err)), nil
+		}
+
+		result = fmt.Sprintf("✅ Deploy token created successfully for project '%s'!\n\nID: %d\nName: %s\nUsername: %s\nToken: %s\nScopes: %v\n",
+			args.Scope.ProjectPath, token.ID, token.Name, token.Username, token.Token, token.Scopes)
+		
+		if token.ExpiresAt != nil {
+			result += fmt.Sprintf("Expires: %s\n", token.ExpiresAt.Format("2006-01-02 15:04:05"))
+		}
+	} else { // group
+		opt := &gitlab.CreateGroupDeployTokenOptions{
+			Name:   gitlab.Ptr(args.CreateOpts.Name),
+			Scopes: &args.CreateOpts.Scopes,
+		}
+
+		if args.CreateOpts.ExpiresAt != "" {
+			expiresAt, err := time.Parse(time.RFC3339, args.CreateOpts.ExpiresAt)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("invalid expires_at format: %v", err)), nil
+			}
+			opt.ExpiresAt = &expiresAt
+		}
+
+		if args.CreateOpts.Username != "" {
+			opt.Username = gitlab.Ptr(args.CreateOpts.Username)
+		}
+
+		token, _, err := util.GitlabClient().DeployTokens.CreateGroupDeployToken(args.Scope.GroupID, opt)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to create group deploy token: %v", err)), nil
+		}
+
+		result = fmt.Sprintf("✅ Deploy token created successfully for group '%s'!\n\nID: %d\nName: %s\nUsername: %s\nToken: %s\nScopes: %v\n",
+			args.Scope.GroupID, token.ID, token.Name, token.Username, token.Token, token.Scopes)
+		
+		if token.ExpiresAt != nil {
+			result += fmt.Sprintf("Expires: %s\n", token.ExpiresAt.Format("2006-01-02 15:04:05"))
+		}
 	}
 	
 	result += "\n⚠️  Important: Save the token value now. You won't be able to access it again!"
-
 	return mcp.NewToolResultText(result), nil
 }
 
-func deleteGroupDeployTokenHandler(ctx context.Context, request mcp.CallToolRequest, args DeleteGroupDeployTokenArgs) (*mcp.CallToolResult, error) {
-	deployTokenID, err := strconv.Atoi(args.DeployTokenID)
+func handleDeleteDeployToken(args ManageDeployTokensArgs) (*mcp.CallToolResult, error) {
+	deployTokenID, err := strconv.Atoi(args.TokenID.ID)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("invalid deploy token ID: %v", err)), nil
 	}
 
-	_, err = util.GitlabClient().DeployTokens.DeleteGroupDeployToken(args.GroupID, deployTokenID)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to delete group deploy token: %v", err)), nil
+	var result string
+	
+	if args.Scope.Type == "project" {
+		_, err = util.GitlabClient().DeployTokens.DeleteProjectDeployToken(args.Scope.ProjectPath, deployTokenID)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to delete project deploy token: %v", err)), nil
+		}
+		
+		result = fmt.Sprintf("✅ Deploy token %s deleted successfully from project '%s'", args.TokenID.ID, args.Scope.ProjectPath)
+	} else { // group
+		_, err = util.GitlabClient().DeployTokens.DeleteGroupDeployToken(args.Scope.GroupID, deployTokenID)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to delete group deploy token: %v", err)), nil
+		}
+		
+		result = fmt.Sprintf("✅ Deploy token %s deleted successfully from group '%s'", args.TokenID.ID, args.Scope.GroupID)
 	}
 
-	result := fmt.Sprintf("✅ Deploy token %s deleted successfully from group '%s'", args.DeployTokenID, args.GroupID)
 	return mcp.NewToolResultText(result), nil
 }

@@ -11,152 +11,196 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
-// Git Flow tool argument structures
-type CreateReleaseBranchArgs struct {
-	ProjectPath       string `json:"project_path"`
-	ReleaseVersion    string `json:"release_version"`
-	BaseBranch        string `json:"base_branch"`
-	DevelopmentBranch string `json:"development_branch"`
+// Unified Git Flow tool argument structures
+type GitFlowCreateBranchArgs struct {
+	Action      string `json:"action" validate:"required,oneof=create_release create_feature create_hotfix"`
+	ProjectPath string `json:"project_path" validate:"required,min=1,max=200"`
+	
+	// Branch creation options
+	CreateOptions struct {
+		// For release branches
+		ReleaseVersion string `json:"release_version" validate:"required_if=Action create_release,min=1,max=50"`
+		
+		// For feature branches  
+		FeatureName string `json:"feature_name" validate:"required_if=Action create_feature,min=1,max=100"`
+		
+		// For hotfix branches
+		HotfixVersion string `json:"hotfix_version" validate:"required_if=Action create_hotfix,min=1,max=50"`
+		
+		// Common branch options
+		BaseBranch        string `json:"base_branch" validate:"max=100"`
+		DevelopmentBranch string `json:"development_branch" validate:"max=100"`
+		ProductionBranch  string `json:"production_branch" validate:"max=100"`
+	} `json:"create_options"`
 }
 
-type CreateFeatureBranchArgs struct {
-	ProjectPath       string `json:"project_path"`
-	FeatureName       string `json:"feature_name"`
-	BaseBranch        string `json:"base_branch"`
-	DevelopmentBranch string `json:"development_branch"`
+type GitFlowFinishBranchArgs struct {
+	Action      string `json:"action" validate:"required,oneof=finish_release finish_feature finish_hotfix"`
+	ProjectPath string `json:"project_path" validate:"required,min=1,max=200"`
+	
+	// Branch finishing options
+	FinishOptions struct {
+		// For release branches
+		ReleaseVersion string `json:"release_version" validate:"required_if=Action finish_release,min=1,max=50"`
+		
+		// For feature branches
+		FeatureName  string `json:"feature_name" validate:"required_if=Action finish_feature,min=1,max=100"`
+		TargetBranch string `json:"target_branch" validate:"max=100"`
+		
+		// For hotfix branches
+		HotfixVersion string `json:"hotfix_version" validate:"required_if=Action finish_hotfix,min=1,max=50"`
+		
+		// Common finish options
+		DeleteBranch      bool   `json:"delete_branch"`
+		DevelopmentBranch string `json:"development_branch" validate:"max=100"`
+		ProductionBranch  string `json:"production_branch" validate:"max=100"`
+	} `json:"finish_options"`
 }
 
-type CreateHotfixBranchArgs struct {
-	ProjectPath      string `json:"project_path"`
-	HotfixVersion    string `json:"hotfix_version"`
-	BaseBranch       string `json:"base_branch"`
-	ProductionBranch string `json:"production_branch"`
-}
-
-type FinishReleaseArgs struct {
-	ProjectPath       string `json:"project_path"`
-	ReleaseVersion    string `json:"release_version"`
-	DeleteBranch      bool   `json:"delete_branch"`
-	DevelopmentBranch string `json:"development_branch"`
-	ProductionBranch  string `json:"production_branch"`
-}
-
-type FinishFeatureArgs struct {
-	ProjectPath       string `json:"project_path"`
-	FeatureName       string `json:"feature_name"`
-	TargetBranch      string `json:"target_branch"`
-	DeleteBranch      bool   `json:"delete_branch"`
-	DevelopmentBranch string `json:"development_branch"`
-}
-
-type FinishHotfixArgs struct {
-	ProjectPath       string `json:"project_path"`
-	HotfixVersion     string `json:"hotfix_version"`
-	DeleteBranch      bool   `json:"delete_branch"`
-	DevelopmentBranch string `json:"development_branch"`
-	ProductionBranch  string `json:"production_branch"`
-}
-
-type ListFlowBranchesArgs struct {
-	ProjectPath string `json:"project_path"`
-	BranchType  string `json:"branch_type"`
-}
-
-type CreateFlowMRsArgs struct {
-	ProjectPath      string `json:"project_path"`
-	SourceBranch     string `json:"source_branch"`
-	Title            string `json:"title"`
-	Description      string `json:"description"`
-	CreateToDevelop  bool   `json:"create_to_develop"`
-	CreateToMaster   bool   `json:"create_to_master"`
-	DevelopmentBranch string `json:"development_branch"`
-	ProductionBranch  string `json:"production_branch"`
+type GitFlowListBranchesArgs struct {
+	ProjectPath string `json:"project_path" validate:"required,min=1,max=200"`
+	BranchType  string `json:"branch_type" validate:"oneof=all feature release hotfix"`
 }
 
 // RegisterFlowTools registers all Git Flow related tools
 func RegisterFlowTools(s *server.MCPServer) {
-	// Release branch tools
-	createReleaseTool := mcp.NewTool("gitflow_create_release",
-		mcp.WithDescription("Create a new release branch following Git Flow conventions"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("release_version", mcp.Required(), mcp.Description("Release version (e.g., 1.2.0)")),
-		mcp.WithString("base_branch", mcp.DefaultString("develop"), mcp.Description("Base branch to create release from")),
-		mcp.WithString("development_branch", mcp.DefaultString("develop"), mcp.Description("Development branch name")),
+	// Unified branch creation tool
+	createBranchTool := mcp.NewTool("gitflow_create_branch",
+		mcp.WithDescription("Create a new Git Flow branch (release, feature, or hotfix)"),
+		mcp.WithString("action", 
+			mcp.Required(), 
+			mcp.Description("Action to perform: create_release, create_feature, create_hotfix")),
+		mcp.WithString("project_path", 
+			mcp.Required(), 
+			mcp.Description("Project/repo path")),
+		mcp.WithObject("create_options",
+			mcp.Description("Branch creation options"),
+			mcp.Properties(map[string]any{
+				"release_version": map[string]any{
+					"type":        "string",
+					"description": "Release version (e.g., 1.2.0) - required for create_release",
+				},
+				"feature_name": map[string]any{
+					"type":        "string", 
+					"description": "Feature name (e.g., user-authentication) - required for create_feature",
+				},
+				"hotfix_version": map[string]any{
+					"type":        "string",
+					"description": "Hotfix version (e.g., 1.2.1) - required for create_hotfix",
+				},
+				"base_branch": map[string]any{
+					"type":        "string",
+					"description": "Base branch to create from (defaults: develop for release/feature, master for hotfix)",
+				},
+				"development_branch": map[string]any{
+					"type":        "string",
+					"description": "Development branch name (default: develop)",
+				},
+				"production_branch": map[string]any{
+					"type":        "string", 
+					"description": "Production branch name (default: master)",
+				},
+			}),
+		),
 	)
 
-	finishReleaseTool := mcp.NewTool("gitflow_finish_release",
-		mcp.WithDescription("Finish a release by creating MRs to develop and master"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("release_version", mcp.Required(), mcp.Description("Release version")),
-		mcp.WithBoolean("delete_branch", mcp.Description("Delete release branch after creating MRs")),
-		mcp.WithString("development_branch", mcp.DefaultString("develop"), mcp.Description("Development branch name")),
-		mcp.WithString("production_branch", mcp.DefaultString("master"), mcp.Description("Production branch name")),
+	// Unified branch finishing tool
+	finishBranchTool := mcp.NewTool("gitflow_finish_branch",
+		mcp.WithDescription("Finish a Git Flow branch by creating merge requests"),
+		mcp.WithString("action",
+			mcp.Required(),
+			mcp.Description("Action to perform: finish_release, finish_feature, finish_hotfix")),
+		mcp.WithString("project_path",
+			mcp.Required(),
+			mcp.Description("Project/repo path")),
+		mcp.WithObject("finish_options",
+			mcp.Description("Branch finishing options"),
+			mcp.Properties(map[string]any{
+				"release_version": map[string]any{
+					"type":        "string",
+					"description": "Release version - required for finish_release",
+				},
+				"feature_name": map[string]any{
+					"type":        "string",
+					"description": "Feature name - required for finish_feature",
+				},
+				"hotfix_version": map[string]any{
+					"type":        "string", 
+					"description": "Hotfix version - required for finish_hotfix",
+				},
+				"target_branch": map[string]any{
+					"type":        "string",
+					"description": "Target branch for feature MR (default: develop)",
+				},
+				"delete_branch": map[string]any{
+					"type":        "boolean",
+					"description": "Delete branch after creating MRs",
+				},
+				"development_branch": map[string]any{
+					"type":        "string",
+					"description": "Development branch name (default: develop)",
+				},
+				"production_branch": map[string]any{
+					"type":        "string",
+					"description": "Production branch name (default: master)",
+				},
+			}),
+		),
 	)
 
-	// Feature branch tools
-	createFeatureTool := mcp.NewTool("gitflow_create_feature",
-		mcp.WithDescription("Create a new feature branch following Git Flow conventions"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("feature_name", mcp.Required(), mcp.Description("Feature name (e.g., user-authentication)")),
-		mcp.WithString("base_branch", mcp.DefaultString("develop"), mcp.Description("Base branch to create feature from")),
-		mcp.WithString("development_branch", mcp.DefaultString("develop"), mcp.Description("Development branch name")),
-	)
-
-	finishFeatureTool := mcp.NewTool("gitflow_finish_feature",
-		mcp.WithDescription("Finish a feature by creating MR to develop"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("feature_name", mcp.Required(), mcp.Description("Feature name")),
-		mcp.WithString("target_branch", mcp.DefaultString("develop"), mcp.Description("Target branch for merge request")),
-		mcp.WithBoolean("delete_branch", mcp.Description("Delete feature branch after creating MR")),
-		mcp.WithString("development_branch", mcp.DefaultString("develop"), mcp.Description("Development branch name")),
-	)
-
-	// Hotfix branch tools
-	createHotfixTool := mcp.NewTool("gitflow_create_hotfix",
-		mcp.WithDescription("Create a new hotfix branch following Git Flow conventions"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("hotfix_version", mcp.Required(), mcp.Description("Hotfix version (e.g., 1.2.1)")),
-		mcp.WithString("base_branch", mcp.DefaultString("master"), mcp.Description("Base branch to create hotfix from")),
-		mcp.WithString("production_branch", mcp.DefaultString("master"), mcp.Description("Production branch name")),
-	)
-
-	finishHotfixTool := mcp.NewTool("gitflow_finish_hotfix",
-		mcp.WithDescription("Finish a hotfix by creating MRs to develop and master"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("hotfix_version", mcp.Required(), mcp.Description("Hotfix version")),
-		mcp.WithBoolean("delete_branch", mcp.Description("Delete hotfix branch after creating MRs")),
-		mcp.WithString("development_branch", mcp.DefaultString("develop"), mcp.Description("Development branch name")),
-		mcp.WithString("production_branch", mcp.DefaultString("master"), mcp.Description("Production branch name")),
-	)
-
-	// Utility tools
+	// List branches tool (keeping as is since it's already unified)
 	listFlowBranchesTool := mcp.NewTool("gitflow_list_branches",
 		mcp.WithDescription("List Git Flow branches (feature, release, hotfix)"),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
 		mcp.WithString("branch_type", mcp.DefaultString("all"), mcp.Description("Branch type to list (feature, release, hotfix, all)")),
 	)
+
 	// Register all tools
-	s.AddTool(createReleaseTool, mcp.NewTypedToolHandler(createReleaseBranchHandler))
-	s.AddTool(finishReleaseTool, mcp.NewTypedToolHandler(finishReleaseHandler))
-	s.AddTool(createFeatureTool, mcp.NewTypedToolHandler(createFeatureBranchHandler))
-	s.AddTool(finishFeatureTool, mcp.NewTypedToolHandler(finishFeatureHandler))
-	s.AddTool(createHotfixTool, mcp.NewTypedToolHandler(createHotfixBranchHandler))
-	s.AddTool(finishHotfixTool, mcp.NewTypedToolHandler(finishHotfixHandler))
+	s.AddTool(createBranchTool, mcp.NewTypedToolHandler(gitFlowCreateBranchHandler))
+	s.AddTool(finishBranchTool, mcp.NewTypedToolHandler(gitFlowFinishBranchHandler))
 	s.AddTool(listFlowBranchesTool, mcp.NewTypedToolHandler(listFlowBranchesHandler))
 }
 
-// Release branch handlers
-func createReleaseBranchHandler(ctx context.Context, request mcp.CallToolRequest, args CreateReleaseBranchArgs) (*mcp.CallToolResult, error) {
-	baseBranch := args.BaseBranch
+// Unified branch creation handler
+func gitFlowCreateBranchHandler(ctx context.Context, request mcp.CallToolRequest, args GitFlowCreateBranchArgs) (*mcp.CallToolResult, error) {
+	switch args.Action {
+	case "create_release":
+		return createReleaseBranch(args)
+	case "create_feature":
+		return createFeatureBranch(args)
+	case "create_hotfix":
+		return createHotfixBranch(args)
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("unsupported action: %s", args.Action)), nil
+	}
+}
+
+// Unified branch finishing handler
+func gitFlowFinishBranchHandler(ctx context.Context, request mcp.CallToolRequest, args GitFlowFinishBranchArgs) (*mcp.CallToolResult, error) {
+	switch args.Action {
+	case "finish_release":
+		return finishReleaseBranch(args)
+	case "finish_feature":
+		return finishFeatureBranch(args)
+	case "finish_hotfix":
+		return finishHotfixBranch(args)
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("unsupported action: %s", args.Action)), nil
+	}
+}
+
+// Release branch implementation
+func createReleaseBranch(args GitFlowCreateBranchArgs) (*mcp.CallToolResult, error) {
+	baseBranch := args.CreateOptions.BaseBranch
 	if baseBranch == "" {
-		developmentBranch := args.DevelopmentBranch
+		developmentBranch := args.CreateOptions.DevelopmentBranch
 		if developmentBranch == "" {
 			developmentBranch = "develop"
 		}
 		baseBranch = developmentBranch
 	}
 
-	releaseBranch := fmt.Sprintf("release/%s", args.ReleaseVersion)
+	releaseBranch := fmt.Sprintf("release/%s", args.CreateOptions.ReleaseVersion)
 
 	// Check if release branch already exists
 	branches, _, err := util.GitlabClient().Branches.ListBranches(args.ProjectPath, &gitlab.ListBranchesOptions{
@@ -192,21 +236,21 @@ func createReleaseBranchHandler(ctx context.Context, request mcp.CallToolRequest
 	result.WriteString("🔄 Next steps:\n")
 	result.WriteString("1. Make your release changes on this branch\n")
 	result.WriteString("2. Test thoroughly\n")
-	result.WriteString(fmt.Sprintf("3. Use 'gitflow_finish_release' with version '%s' to create MRs\n", args.ReleaseVersion))
+	result.WriteString(fmt.Sprintf("3. Use 'gitflow_finish_branch' with action 'finish_release' and version '%s' to create MRs\n", args.CreateOptions.ReleaseVersion))
 
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func finishReleaseHandler(ctx context.Context, request mcp.CallToolRequest, args FinishReleaseArgs) (*mcp.CallToolResult, error) {
-	releaseBranch := fmt.Sprintf("release/%s", args.ReleaseVersion)
+func finishReleaseBranch(args GitFlowFinishBranchArgs) (*mcp.CallToolResult, error) {
+	releaseBranch := fmt.Sprintf("release/%s", args.FinishOptions.ReleaseVersion)
 	
 	// Get branch names with defaults
-	developmentBranch := args.DevelopmentBranch
+	developmentBranch := args.FinishOptions.DevelopmentBranch
 	if developmentBranch == "" {
 		developmentBranch = "develop"
 	}
 	
-	productionBranch := args.ProductionBranch
+	productionBranch := args.FinishOptions.ProductionBranch
 	if productionBranch == "" {
 		productionBranch = "master"
 	}
@@ -218,12 +262,12 @@ func finishReleaseHandler(ctx context.Context, request mcp.CallToolRequest, args
 	}
 
 	var result strings.Builder
-	result.WriteString(fmt.Sprintf("🚀 Finishing release %s\n\n", args.ReleaseVersion))
+	result.WriteString(fmt.Sprintf("🚀 Finishing release %s\n\n", args.FinishOptions.ReleaseVersion))
 
 	// Create MR to development branch
 	developMR, _, err := util.GitlabClient().MergeRequests.CreateMergeRequest(args.ProjectPath, &gitlab.CreateMergeRequestOptions{
-		Title:        gitlab.Ptr(fmt.Sprintf("Release %s", args.ReleaseVersion)),
-		Description:  gitlab.Ptr(fmt.Sprintf("Release %s ready for merge to %s\n\n- [ ] Code review completed\n- [ ] Tests passing\n- [ ] Documentation updated", args.ReleaseVersion, developmentBranch)),
+		Title:        gitlab.Ptr(fmt.Sprintf("Release %s", args.FinishOptions.ReleaseVersion)),
+		Description:  gitlab.Ptr(fmt.Sprintf("Release %s ready for merge to %s\n\n- [ ] Code review completed\n- [ ] Tests passing\n- [ ] Documentation updated", args.FinishOptions.ReleaseVersion, developmentBranch)),
 		SourceBranch: gitlab.Ptr(releaseBranch),
 		TargetBranch: gitlab.Ptr(developmentBranch),
 	})
@@ -236,8 +280,8 @@ func finishReleaseHandler(ctx context.Context, request mcp.CallToolRequest, args
 
 	// Create MR to production branch
 	masterMR, _, err := util.GitlabClient().MergeRequests.CreateMergeRequest(args.ProjectPath, &gitlab.CreateMergeRequestOptions{
-		Title:        gitlab.Ptr(fmt.Sprintf("Release %s", args.ReleaseVersion)),
-		Description:  gitlab.Ptr(fmt.Sprintf("Release %s ready for production\n\n- [ ] Release notes prepared\n- [ ] Deployment plan reviewed\n- [ ] Rollback plan confirmed", args.ReleaseVersion)),
+		Title:        gitlab.Ptr(fmt.Sprintf("Release %s", args.FinishOptions.ReleaseVersion)),
+		Description:  gitlab.Ptr(fmt.Sprintf("Release %s ready for production\n\n- [ ] Release notes prepared\n- [ ] Deployment plan reviewed\n- [ ] Rollback plan confirmed", args.FinishOptions.ReleaseVersion)),
 		SourceBranch: gitlab.Ptr(releaseBranch),
 		TargetBranch: gitlab.Ptr(productionBranch),
 	})
@@ -249,7 +293,7 @@ func finishReleaseHandler(ctx context.Context, request mcp.CallToolRequest, args
 	}
 
 	// Delete branch if requested
-	if args.DeleteBranch {
+	if args.FinishOptions.DeleteBranch {
 		_, err := util.GitlabClient().Branches.DeleteBranch(args.ProjectPath, releaseBranch)
 		if err != nil {
 			result.WriteString(fmt.Sprintf("⚠️  Failed to delete release branch: %v\n", err))
@@ -258,23 +302,23 @@ func finishReleaseHandler(ctx context.Context, request mcp.CallToolRequest, args
 		}
 	}
 
-	result.WriteString(fmt.Sprintf("\n📋 Release %s is ready for review and merge!\n", args.ReleaseVersion))
+	result.WriteString(fmt.Sprintf("\n📋 Release %s is ready for review and merge!\n", args.FinishOptions.ReleaseVersion))
 
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-// Feature branch handlers
-func createFeatureBranchHandler(ctx context.Context, request mcp.CallToolRequest, args CreateFeatureBranchArgs) (*mcp.CallToolResult, error) {
-	baseBranch := args.BaseBranch
+// Feature branch implementation
+func createFeatureBranch(args GitFlowCreateBranchArgs) (*mcp.CallToolResult, error) {
+	baseBranch := args.CreateOptions.BaseBranch
 	if baseBranch == "" {
-		developmentBranch := args.DevelopmentBranch
+		developmentBranch := args.CreateOptions.DevelopmentBranch
 		if developmentBranch == "" {
 			developmentBranch = "develop"
 		}
 		baseBranch = developmentBranch
 	}
 
-	featureBranch := fmt.Sprintf("feature/%s", args.FeatureName)
+	featureBranch := fmt.Sprintf("feature/%s", args.CreateOptions.FeatureName)
 
 	// Check if feature branch already exists
 	branches, _, err := util.GitlabClient().Branches.ListBranches(args.ProjectPath, &gitlab.ListBranchesOptions{
@@ -310,16 +354,16 @@ func createFeatureBranchHandler(ctx context.Context, request mcp.CallToolRequest
 	result.WriteString("🔄 Next steps:\n")
 	result.WriteString("1. Implement your feature on this branch\n")
 	result.WriteString("2. Commit your changes regularly\n")
-	result.WriteString(fmt.Sprintf("3. Use 'gitflow_finish_feature' with name '%s' to create MR\n", args.FeatureName))
+	result.WriteString(fmt.Sprintf("3. Use 'gitflow_finish_branch' with action 'finish_feature' and name '%s' to create MR\n", args.CreateOptions.FeatureName))
 
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func finishFeatureHandler(ctx context.Context, request mcp.CallToolRequest, args FinishFeatureArgs) (*mcp.CallToolResult, error) {
-	featureBranch := fmt.Sprintf("feature/%s", args.FeatureName)
-	targetBranch := args.TargetBranch
+func finishFeatureBranch(args GitFlowFinishBranchArgs) (*mcp.CallToolResult, error) {
+	featureBranch := fmt.Sprintf("feature/%s", args.FinishOptions.FeatureName)
+	targetBranch := args.FinishOptions.TargetBranch
 	if targetBranch == "" {
-		developmentBranch := args.DevelopmentBranch
+		developmentBranch := args.FinishOptions.DevelopmentBranch
 		if developmentBranch == "" {
 			developmentBranch = "develop"
 		}
@@ -333,12 +377,12 @@ func finishFeatureHandler(ctx context.Context, request mcp.CallToolRequest, args
 	}
 
 	var result strings.Builder
-	result.WriteString(fmt.Sprintf("🚀 Finishing feature %s\n\n", args.FeatureName))
+	result.WriteString(fmt.Sprintf("🚀 Finishing feature %s\n\n", args.FinishOptions.FeatureName))
 
 	// Create MR to target branch (usually develop)
 	mr, _, err := util.GitlabClient().MergeRequests.CreateMergeRequest(args.ProjectPath, &gitlab.CreateMergeRequestOptions{
-		Title:        gitlab.Ptr(fmt.Sprintf("Feature: %s", args.FeatureName)),
-		Description:  gitlab.Ptr(fmt.Sprintf("Feature implementation: %s\n\n- [ ] Code review completed\n- [ ] Tests added/updated\n- [ ] Documentation updated\n- [ ] Ready for merge", args.FeatureName)),
+		Title:        gitlab.Ptr(fmt.Sprintf("Feature: %s", args.FinishOptions.FeatureName)),
+		Description:  gitlab.Ptr(fmt.Sprintf("Feature implementation: %s\n\n- [ ] Code review completed\n- [ ] Tests added/updated\n- [ ] Documentation updated\n- [ ] Ready for merge", args.FinishOptions.FeatureName)),
 		SourceBranch: gitlab.Ptr(featureBranch),
 		TargetBranch: gitlab.Ptr(targetBranch),
 	})
@@ -350,7 +394,7 @@ func finishFeatureHandler(ctx context.Context, request mcp.CallToolRequest, args
 	result.WriteString(fmt.Sprintf("   URL: %s\n", mr.WebURL))
 
 	// Delete branch if requested
-	if args.DeleteBranch {
+	if args.FinishOptions.DeleteBranch {
 		_, err := util.GitlabClient().Branches.DeleteBranch(args.ProjectPath, featureBranch)
 		if err != nil {
 			result.WriteString(fmt.Sprintf("⚠️  Failed to delete feature branch: %v\n", err))
@@ -359,23 +403,23 @@ func finishFeatureHandler(ctx context.Context, request mcp.CallToolRequest, args
 		}
 	}
 
-	result.WriteString(fmt.Sprintf("\n📋 Feature %s is ready for review!\n", args.FeatureName))
+	result.WriteString(fmt.Sprintf("\n📋 Feature %s is ready for review!\n", args.FinishOptions.FeatureName))
 
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-// Hotfix branch handlers
-func createHotfixBranchHandler(ctx context.Context, request mcp.CallToolRequest, args CreateHotfixBranchArgs) (*mcp.CallToolResult, error) {
-	baseBranch := args.BaseBranch
+// Hotfix branch implementation
+func createHotfixBranch(args GitFlowCreateBranchArgs) (*mcp.CallToolResult, error) {
+	baseBranch := args.CreateOptions.BaseBranch
 	if baseBranch == "" {
-		productionBranch := args.ProductionBranch
+		productionBranch := args.CreateOptions.ProductionBranch
 		if productionBranch == "" {
 			productionBranch = "master"
 		}
 		baseBranch = productionBranch
 	}
 
-	hotfixBranch := fmt.Sprintf("hotfix/%s", args.HotfixVersion)
+	hotfixBranch := fmt.Sprintf("hotfix/%s", args.CreateOptions.HotfixVersion)
 
 	// Check if hotfix branch already exists
 	branches, _, err := util.GitlabClient().Branches.ListBranches(args.ProjectPath, &gitlab.ListBranchesOptions{
@@ -411,21 +455,21 @@ func createHotfixBranchHandler(ctx context.Context, request mcp.CallToolRequest,
 	result.WriteString("🔄 Next steps:\n")
 	result.WriteString("1. Fix the critical issue on this branch\n")
 	result.WriteString("2. Test the fix thoroughly\n")
-	result.WriteString(fmt.Sprintf("3. Use 'gitflow_finish_hotfix' with version '%s' to create MRs\n", args.HotfixVersion))
+	result.WriteString(fmt.Sprintf("3. Use 'gitflow_finish_branch' with action 'finish_hotfix' and version '%s' to create MRs\n", args.CreateOptions.HotfixVersion))
 
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func finishHotfixHandler(ctx context.Context, request mcp.CallToolRequest, args FinishHotfixArgs) (*mcp.CallToolResult, error) {
-	hotfixBranch := fmt.Sprintf("hotfix/%s", args.HotfixVersion)
+func finishHotfixBranch(args GitFlowFinishBranchArgs) (*mcp.CallToolResult, error) {
+	hotfixBranch := fmt.Sprintf("hotfix/%s", args.FinishOptions.HotfixVersion)
 	
 	// Get branch names with defaults
-	developmentBranch := args.DevelopmentBranch
+	developmentBranch := args.FinishOptions.DevelopmentBranch
 	if developmentBranch == "" {
 		developmentBranch = "develop"
 	}
 	
-	productionBranch := args.ProductionBranch
+	productionBranch := args.FinishOptions.ProductionBranch
 	if productionBranch == "" {
 		productionBranch = "master"
 	}
@@ -437,12 +481,12 @@ func finishHotfixHandler(ctx context.Context, request mcp.CallToolRequest, args 
 	}
 
 	var result strings.Builder
-	result.WriteString(fmt.Sprintf("🚨 Finishing hotfix %s\n\n", args.HotfixVersion))
+	result.WriteString(fmt.Sprintf("🚨 Finishing hotfix %s\n\n", args.FinishOptions.HotfixVersion))
 
 	// Create MR to production branch
 	masterMR, _, err := util.GitlabClient().MergeRequests.CreateMergeRequest(args.ProjectPath, &gitlab.CreateMergeRequestOptions{
-		Title:        gitlab.Ptr(fmt.Sprintf("Hotfix %s", args.HotfixVersion)),
-		Description:  gitlab.Ptr(fmt.Sprintf("Critical hotfix %s\n\n- [ ] Fix verified\n- [ ] Tests passing\n- [ ] Ready for immediate deployment", args.HotfixVersion)),
+		Title:        gitlab.Ptr(fmt.Sprintf("Hotfix %s", args.FinishOptions.HotfixVersion)),
+		Description:  gitlab.Ptr(fmt.Sprintf("Critical hotfix %s\n\n- [ ] Fix verified\n- [ ] Tests passing\n- [ ] Ready for immediate deployment", args.FinishOptions.HotfixVersion)),
 		SourceBranch: gitlab.Ptr(hotfixBranch),
 		TargetBranch: gitlab.Ptr(productionBranch),
 	})
@@ -455,8 +499,8 @@ func finishHotfixHandler(ctx context.Context, request mcp.CallToolRequest, args 
 
 	// Create MR to development branch
 	developMR, _, err := util.GitlabClient().MergeRequests.CreateMergeRequest(args.ProjectPath, &gitlab.CreateMergeRequestOptions{
-		Title:        gitlab.Ptr(fmt.Sprintf("Hotfix %s", args.HotfixVersion)),
-		Description:  gitlab.Ptr(fmt.Sprintf("Hotfix %s merge to %s\n\n- [ ] Conflicts resolved\n- [ ] Tests updated if needed", args.HotfixVersion, developmentBranch)),
+		Title:        gitlab.Ptr(fmt.Sprintf("Hotfix %s", args.FinishOptions.HotfixVersion)),
+		Description:  gitlab.Ptr(fmt.Sprintf("Hotfix %s merge to %s\n\n- [ ] Conflicts resolved\n- [ ] Tests updated if needed", args.FinishOptions.HotfixVersion, developmentBranch)),
 		SourceBranch: gitlab.Ptr(hotfixBranch),
 		TargetBranch: gitlab.Ptr(developmentBranch),
 	})
@@ -468,7 +512,7 @@ func finishHotfixHandler(ctx context.Context, request mcp.CallToolRequest, args 
 	}
 
 	// Delete branch if requested
-	if args.DeleteBranch {
+	if args.FinishOptions.DeleteBranch {
 		_, err := util.GitlabClient().Branches.DeleteBranch(args.ProjectPath, hotfixBranch)
 		if err != nil {
 			result.WriteString(fmt.Sprintf("⚠️  Failed to delete hotfix branch: %v\n", err))
@@ -477,13 +521,13 @@ func finishHotfixHandler(ctx context.Context, request mcp.CallToolRequest, args 
 		}
 	}
 
-	result.WriteString(fmt.Sprintf("\n🚨 Hotfix %s is ready for urgent review and deployment!\n", args.HotfixVersion))
+	result.WriteString(fmt.Sprintf("\n🚨 Hotfix %s is ready for urgent review and deployment!\n", args.FinishOptions.HotfixVersion))
 
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-// Utility handlers
-func listFlowBranchesHandler(ctx context.Context, request mcp.CallToolRequest, args ListFlowBranchesArgs) (*mcp.CallToolResult, error) {
+// List branches handler (keeping existing implementation)
+func listFlowBranchesHandler(ctx context.Context, request mcp.CallToolRequest, args GitFlowListBranchesArgs) (*mcp.CallToolResult, error) {
 	branches, _, err := util.GitlabClient().Branches.ListBranches(args.ProjectPath, &gitlab.ListBranchesOptions{
 		ListOptions: gitlab.ListOptions{
 			PerPage: 100,
