@@ -11,51 +11,126 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
-type ListPipelinesArgs struct {
-	ProjectPath string `json:"project_path"`
-	Status      string `json:"status"`
-}
-
-type GetPipelineArgs struct {
-	ProjectPath string  `json:"project_path"`
-	PipelineID  float64 `json:"pipeline_id"`
-}
-
-type TriggerPipelineArgs struct {
-	ProjectPath string            `json:"project_path"`
-	Ref         string            `json:"ref"`
-	Variables   map[string]string `json:"variables,omitempty"`
+// Consolidated pipeline management arguments with action-based routing
+type PipelineManagementArgs struct {
+	ProjectPath string `json:"project_path" validate:"required,min=1"`
+	Action      string `json:"action" validate:"required,oneof=list get trigger"`
+	
+	// List action options
+	ListOptions struct {
+		Status string `json:"status,omitempty" validate:"omitempty,oneof=running pending success failed canceled skipped all"`
+	} `json:"list_options,omitempty"`
+	
+	// Get action options
+	GetOptions struct {
+		PipelineID float64 `json:"pipeline_id" validate:"required,min=1"`
+	} `json:"get_options,omitempty"`
+	
+	// Trigger action options
+	TriggerOptions struct {
+		Ref       string            `json:"ref" validate:"required,min=1"`
+		Variables map[string]string `json:"variables,omitempty" validate:"omitempty,dive,keys,min=1,endkeys,min=1"`
+		Metadata  struct {
+			Description string `json:"description,omitempty" validate:"omitempty,max=500"`
+			Source      string `json:"source,omitempty" validate:"omitempty,max=100"`
+		} `json:"metadata,omitempty"`
+	} `json:"trigger_options,omitempty"`
 }
 
 func RegisterPipelineTools(s *server.MCPServer) {
-	pipelineTool := mcp.NewTool("list_pipelines",
-		mcp.WithDescription("List pipelines for a GitLab project"),
+	// Consolidated pipeline management tool
+	pipelineManagementTool := mcp.NewTool("manage_pipelines",
+		mcp.WithDescription("Comprehensive pipeline management for GitLab projects. Supports list, get details, and trigger operations."),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("status", mcp.DefaultString("all"), mcp.Description("Pipeline status (running/pending/success/failed/canceled/skipped/all)")),
+		mcp.WithString("action", mcp.Required(), mcp.Description("Action to perform: 'list' (list pipelines), 'get' (get pipeline details), 'trigger' (create new pipeline)")),
+		
+		// List options
+		mcp.WithObject("list_options", 
+			mcp.Description("Options for list action"),
+			mcp.Properties(map[string]any{
+				"status": map[string]any{
+					"type":        "string",
+					"description": "Pipeline status filter (running/pending/success/failed/canceled/skipped/all)",
+					"default":     "all",
+				},
+			}),
+		),
+		
+		// Get options
+		mcp.WithObject("get_options",
+			mcp.Description("Options for get action"),
+			mcp.Properties(map[string]any{
+				"pipeline_id": map[string]any{
+					"type":        "number",
+					"description": "Pipeline ID to retrieve details for",
+				},
+			}),
+		),
+		
+		// Trigger options
+		mcp.WithObject("trigger_options",
+			mcp.Description("Options for trigger action"),
+			mcp.Properties(map[string]any{
+				"ref": map[string]any{
+					"type":        "string",
+					"description": "Branch, tag, or commit SHA to trigger pipeline on",
+				},
+				"variables": map[string]any{
+					"type":        "object",
+					"description": "Optional variables to pass to the pipeline (key-value pairs)",
+				},
+				"metadata": map[string]any{
+					"type": "object",
+					"description": "Additional pipeline metadata",
+					"properties": map[string]any{
+						"description": map[string]any{
+							"type":        "string",
+							"description": "Pipeline description",
+						},
+						"source": map[string]any{
+							"type":        "string", 
+							"description": "Pipeline source identifier",
+						},
+					},
+				},
+			}),
+		),
 	)
-	s.AddTool(pipelineTool, mcp.NewTypedToolHandler(listPipelinesHandler))
 	
-	getPipelineTool := mcp.NewTool("get_pipeline",
-		mcp.WithDescription("Get details for a specific pipeline by ID"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithNumber("pipeline_id", mcp.Required(), mcp.Description("Pipeline ID")),
-	)
-	s.AddTool(getPipelineTool, mcp.NewTypedToolHandler(getPipelineHandler))
-
-	triggerPipelineTool := mcp.NewTool("trigger_pipeline",
-		mcp.WithDescription("Trigger a new pipeline on a specific branch with optional variables"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("ref", mcp.Required(), mcp.Description("Branch, tag, or commit SHA to trigger pipeline on")),
-		mcp.WithObject("variables", mcp.Description("Optional variables to pass to the pipeline (key-value pairs)")),
-	)
-	s.AddTool(triggerPipelineTool, mcp.NewTypedToolHandler(triggerPipelineHandler))
+	s.AddTool(pipelineManagementTool, mcp.NewTypedToolHandler(pipelineManagementHandler))
 }
 
-func listPipelinesHandler(ctx context.Context, request mcp.CallToolRequest, args ListPipelinesArgs) (*mcp.CallToolResult, error) {
+// Consolidated pipeline management handler
+func pipelineManagementHandler(ctx context.Context, request mcp.CallToolRequest, args PipelineManagementArgs) (*mcp.CallToolResult, error) {
+	switch strings.ToLower(args.Action) {
+	case "list":
+		return handleListPipelines(args)
+	case "get":
+		if args.GetOptions.PipelineID == 0 {
+			return mcp.NewToolResultError("pipeline_id is required in get_options for get action"), nil
+		}
+		return handleGetPipeline(args)
+	case "trigger":
+		if args.TriggerOptions.Ref == "" {
+			return mcp.NewToolResultError("ref is required in trigger_options for trigger action"), nil
+		}
+		return handleTriggerPipeline(args)
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("unsupported action: %s. Supported actions: list, get, trigger", args.Action)), nil
+	}
+}
+
+// Handle list pipelines action
+func handleListPipelines(args PipelineManagementArgs) (*mcp.CallToolResult, error) {
 	opt := &gitlab.ListProjectPipelinesOptions{}
-	if args.Status != "all" {
-		// Assuming gitlab.BuildStateValue is the correct type for status
-		opt.Status = gitlab.Ptr(gitlab.BuildStateValue(args.Status))
+	
+	status := "all"
+	if args.ListOptions.Status != "" {
+		status = args.ListOptions.Status
+	}
+	
+	if status != "all" {
+		opt.Status = gitlab.Ptr(gitlab.BuildStateValue(status))
 	}
 
 	pipelines, _, err := util.GitlabClient().Pipelines.ListProjectPipelines(args.ProjectPath, opt)
@@ -64,22 +139,27 @@ func listPipelinesHandler(ctx context.Context, request mcp.CallToolRequest, args
 	}
 
 	var result strings.Builder
-	result.WriteString(fmt.Sprintf("Pipelines for project %s:\n\n", args.ProjectPath))
+	result.WriteString(fmt.Sprintf("Pipelines for project %s (status: %s):\n\n", args.ProjectPath, status))
 
-	for _, pipeline := range pipelines {
-		result.WriteString(fmt.Sprintf("Pipeline #%d\n", pipeline.ID))
-		result.WriteString(fmt.Sprintf("Status: %s\n", pipeline.Status))
-		result.WriteString(fmt.Sprintf("Ref: %s\n", pipeline.Ref))
-		result.WriteString(fmt.Sprintf("SHA: %s\n", pipeline.SHA))
-		result.WriteString(fmt.Sprintf("Created: %s\n", pipeline.CreatedAt.Format("2006-01-02 15:04:05")))
-		result.WriteString(fmt.Sprintf("URL: %s\n\n", pipeline.WebURL))
+	if len(pipelines) == 0 {
+		result.WriteString("No pipelines found matching the criteria.\n")
+	} else {
+		for _, pipeline := range pipelines {
+			result.WriteString(fmt.Sprintf("Pipeline #%d\n", pipeline.ID))
+			result.WriteString(fmt.Sprintf("Status: %s\n", pipeline.Status))
+			result.WriteString(fmt.Sprintf("Ref: %s\n", pipeline.Ref))
+			result.WriteString(fmt.Sprintf("SHA: %s\n", pipeline.SHA))
+			result.WriteString(fmt.Sprintf("Created: %s\n", pipeline.CreatedAt.Format("2006-01-02 15:04:05")))
+			result.WriteString(fmt.Sprintf("URL: %s\n\n", pipeline.WebURL))
+		}
 	}
 
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func getPipelineHandler(ctx context.Context, request mcp.CallToolRequest, args GetPipelineArgs) (*mcp.CallToolResult, error) {
-	pipelineID := int(args.PipelineID)
+// Handle get pipeline details action
+func handleGetPipeline(args PipelineManagementArgs) (*mcp.CallToolResult, error) {
+	pipelineID := int(args.GetOptions.PipelineID)
 
 	pipeline, _, err := util.GitlabClient().Pipelines.GetPipeline(args.ProjectPath, pipelineID)
 	if err != nil {
@@ -109,15 +189,16 @@ func getPipelineHandler(ctx context.Context, request mcp.CallToolRequest, args G
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func triggerPipelineHandler(ctx context.Context, request mcp.CallToolRequest, args TriggerPipelineArgs) (*mcp.CallToolResult, error) {
+// Handle trigger pipeline action
+func handleTriggerPipeline(args PipelineManagementArgs) (*mcp.CallToolResult, error) {
 	opt := &gitlab.CreatePipelineOptions{
-		Ref: gitlab.Ptr(args.Ref),
+		Ref: gitlab.Ptr(args.TriggerOptions.Ref),
 	}
 
 	// Add variables if provided
-	if len(args.Variables) > 0 {
+	if len(args.TriggerOptions.Variables) > 0 {
 		var variables []*gitlab.PipelineVariableOptions
-		for key, value := range args.Variables {
+		for key, value := range args.TriggerOptions.Variables {
 			variables = append(variables, &gitlab.PipelineVariableOptions{
 				Key:   gitlab.Ptr(key),
 				Value: gitlab.Ptr(value),
@@ -140,11 +221,19 @@ func triggerPipelineHandler(ctx context.Context, request mcp.CallToolRequest, ar
 	result.WriteString(fmt.Sprintf("Created: %s\n", pipeline.CreatedAt.Format("2006-01-02 15:04:05")))
 	result.WriteString(fmt.Sprintf("URL: %s\n", pipeline.WebURL))
 
-	if len(args.Variables) > 0 {
+	if len(args.TriggerOptions.Variables) > 0 {
 		result.WriteString(fmt.Sprintf("\nVariables passed:\n"))
-		for key, value := range args.Variables {
+		for key, value := range args.TriggerOptions.Variables {
 			result.WriteString(fmt.Sprintf("  %s: %s\n", key, value))
 		}
+	}
+	
+	if args.TriggerOptions.Metadata.Description != "" {
+		result.WriteString(fmt.Sprintf("\nDescription: %s\n", args.TriggerOptions.Metadata.Description))
+	}
+	
+	if args.TriggerOptions.Metadata.Source != "" {
+		result.WriteString(fmt.Sprintf("Source: %s\n", args.TriggerOptions.Metadata.Source))
 	}
 
 	return mcp.NewToolResultText(result.String()), nil
