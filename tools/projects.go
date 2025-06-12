@@ -11,12 +11,12 @@ import (
 )
 
 type ListProjectsArgs struct {
-	GroupID string `json:"group_id"`
-	Search  string `json:"search"`
+	GroupID string `json:"group_id" validate:"required,min=1"`
+	Search  string `json:"search" validate:"omitempty,min=1,max=200"`
 }
 
 type GetProjectArgs struct {
-	ProjectPath string `json:"project_path"`
+	ProjectPath string `json:"project_path" validate:"required,min=1,max=500"`
 }
 
 func RegisterProjectTools(s *server.MCPServer) {

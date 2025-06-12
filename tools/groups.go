@@ -12,13 +12,13 @@ import (
 )
 
 type ListGroupUsersArgs struct {
-	GroupID string `json:"group_id"`
+	GroupID string `json:"group_id" validate:"required,min=1"`
 }
 
 type ListGroupsArgs struct {
-	Search     string `json:"search"`
+	Search     string `json:"search" validate:"omitempty,min=1,max=100"`
 	Owned      bool   `json:"owned"`
-	MinAccess  string `json:"min_access_level"`
+	MinAccess  string `json:"min_access_level" validate:"omitempty,oneof=guest reporter developer maintainer owner"`
 }
 
 func RegisterGroupTools(s *server.MCPServer) {

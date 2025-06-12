@@ -15,9 +15,9 @@ var GitlabClient = sync.OnceValue[*gitlab.Client](func() *gitlab.Client {
 		log.Fatal("GITLAB_TOKEN is required")
 	}
 
-	host := os.Getenv("GITLAB_HOST")
+	host := os.Getenv("GITLAB_URL")
 	if host == "" {
-		log.Fatal("GITLAB_HOST is required")
+		log.Fatal("GITLAB_URL is required")
 	}
 
 	client, err := gitlab.NewClient(token, gitlab.WithBaseURL(host))
