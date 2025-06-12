@@ -12,177 +12,289 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
-type GetFileContentArgs struct {
-	ProjectPath string `json:"project_path"`
-	FilePath    string `json:"file_path"`
-	Ref         string `json:"ref"`
+// Consolidated Repository Files Management
+type RepositoryFilesArgs struct {
+	Action      string `json:"action" validate:"required,oneof=get_content"`
+	ProjectPath string `json:"project_path" validate:"required,min=1,max=255"`
+	FilePath    string `json:"file_path" validate:"required,min=1,max=500"`
+	Ref         string `json:"ref" validate:"required,min=1,max=255"`
 }
 
-type ListCommitsArgs struct {
-	ProjectPath string `json:"project_path"`
-	Since       string `json:"since"`
-	Until       string `json:"until"`
-	Ref         string `json:"ref"`
+// Consolidated Commits Management
+type CommitsManagementArgs struct {
+	Action      string `json:"action" validate:"required,oneof=list search get_details get_comments post_comment get_merge_requests get_refs"`
+	ProjectPath string `json:"project_path" validate:"required,min=1,max=255"`
+	
+	// Common commit parameters
+	CommitSHA string `json:"commit_sha,omitempty" validate:"omitempty,min=7,max=40,alphanum"`
+	Ref       string `json:"ref,omitempty" validate:"omitempty,min=1,max=255"`
+	
+	// List/Search specific parameters
+	ListOptions struct {
+		Since string `json:"since,omitempty" validate:"omitempty,datetime=2006-01-02"`
+		Until string `json:"until,omitempty" validate:"omitempty,datetime=2006-01-02"`
+	} `json:"list_options"`
+	
+	SearchOptions struct {
+		Author string `json:"author,omitempty" validate:"omitempty,min=1,max=100"`
+		Path   string `json:"path,omitempty" validate:"omitempty,min=1,max=500"`
+		Since  string `json:"since,omitempty" validate:"omitempty,datetime=2006-01-02"`
+		Until  string `json:"until,omitempty" validate:"omitempty,datetime=2006-01-02"`
+	} `json:"search_options"`
+	
+	// Comment specific parameters
+	CommentOptions struct {
+		Note     string `json:"note,omitempty" validate:"omitempty,min=1,max=1000"`
+		Path     string `json:"path,omitempty" validate:"omitempty,min=1,max=500"`
+		Line     int    `json:"line,omitempty" validate:"omitempty,min=1"`
+		LineType string `json:"line_type,omitempty" validate:"omitempty,oneof=new old"`
+	} `json:"comment_options"`
+	
+	// Refs specific parameters
+	RefsOptions struct {
+		Type string `json:"type,omitempty" validate:"omitempty,oneof=branch tag"`
+	} `json:"refs_options"`
 }
 
-type GetCommitDetailsArgs struct {
-	ProjectPath string `json:"project_path"`
-	CommitSHA   string `json:"commit_sha"`
-}
-
-// New args structs for advanced commit tools
-type SearchCommitsArgs struct {
-	ProjectPath string `json:"project_path"`
-	Author      string `json:"author"`
-	Path        string `json:"path"`
-	Since       string `json:"since"`
-	Until       string `json:"until"`
-	Ref         string `json:"ref"`
-}
-
-type GetCommitCommentsArgs struct {
-	ProjectPath string `json:"project_path"`
-	CommitSHA   string `json:"commit_sha"`
-}
-
-type PostCommitCommentArgs struct {
-	ProjectPath string `json:"project_path"`
-	CommitSHA   string `json:"commit_sha"`
-	Note        string `json:"note"`
-	Path        string `json:"path"`
-	Line        int    `json:"line"`
-	LineType    string `json:"line_type"`
-}
-
-type GetCommitStatusesArgs struct {
-	ProjectPath string `json:"project_path"`
-	CommitSHA   string `json:"commit_sha"`
-	Ref         string `json:"ref"`
-}
-
-type GetCommitMergeRequestsArgs struct {
-	ProjectPath string `json:"project_path"`
-	CommitSHA   string `json:"commit_sha"`
-}
-
-type GetCommitGPGSignatureArgs struct {
-	ProjectPath string `json:"project_path"`
-	CommitSHA   string `json:"commit_sha"`
-}
-
-type CherryPickCommitArgs struct {
-	ProjectPath string `json:"project_path"`
-	CommitSHA   string `json:"commit_sha"`
-	Branch      string `json:"branch"`
-	DryRun      bool   `json:"dry_run"`
-	Message     string `json:"message"`
-}
-
-type RevertCommitArgs struct {
-	ProjectPath string `json:"project_path"`
-	CommitSHA   string `json:"commit_sha"`
-	Branch      string `json:"branch"`
-}
-
-type GetCommitRefsArgs struct {
-	ProjectPath string `json:"project_path"`
-	CommitSHA   string `json:"commit_sha"`
-	Type        string `json:"type"`
+// Consolidated Commit Operations
+type CommitOperationsArgs struct {
+	Action      string `json:"action" validate:"required,oneof=cherry_pick revert"`
+	ProjectPath string `json:"project_path" validate:"required,min=1,max=255"`
+	CommitSHA   string `json:"commit_sha" validate:"required,min=7,max=40,alphanum"`
+	Branch      string `json:"branch" validate:"required,min=1,max=255"`
+	
+	// Cherry-pick specific options
+	CherryPickOptions struct {
+		DryRun  bool   `json:"dry_run"`
+		Message string `json:"message,omitempty" validate:"omitempty,min=1,max=500"`
+	} `json:"cherry_pick_options"`
 }
 
 func RegisterRepositoryTools(s *server.MCPServer) {
-	fileContentTool := mcp.NewTool("get_file_content",
-		mcp.WithDescription("Get file content from a GitLab repository"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("file_path", mcp.Required(), mcp.Description("Path to the file in the repository")),
-		mcp.WithString("ref", mcp.Required(), mcp.Description("Branch name, tag, or commit SHA")),
+	// Consolidated Repository Files Tool
+	repositoryFilesTool := mcp.NewTool("manage_repository_files",
+		mcp.WithDescription("Manage repository files with various actions: get_content"),
+		mcp.WithString("action", mcp.Required(), mcp.Description("Action to perform: get_content")),
+		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path (1-255 characters)")),
+		mcp.WithString("file_path", mcp.Required(), mcp.Description("Path to the file in the repository (1-500 characters)")),
+		mcp.WithString("ref", mcp.Required(), mcp.Description("Branch name, tag, or commit SHA (1-255 characters)")),
 	)
 
-	commitsTool := mcp.NewTool("list_commits",
-		mcp.WithDescription("List commits in a GitLab project within a date range"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("since", mcp.Required(), mcp.Description("Start date (YYYY-MM-DD)")),
-		mcp.WithString("until", mcp.Description("End date (YYYY-MM-DD). If not provided, defaults to current date")),
-		mcp.WithString("ref", mcp.Required(), mcp.Description("Branch name, tag, or commit SHA")),
+	// Consolidated Commits Management Tool
+	commitsManagementTool := mcp.NewTool("manage_commits",
+		mcp.WithDescription("Comprehensive commits management with multiple actions: list, search, get_details, get_comments, post_comment, get_merge_requests, get_refs"),
+		mcp.WithString("action", mcp.Required(), mcp.Description("Action to perform: list, search, get_details, get_comments, post_comment, get_merge_requests, get_refs")),
+		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path (1-255 characters)")),
+		mcp.WithString("commit_sha", mcp.Description("Commit SHA (7-40 alphanumeric characters, required for: get_details, get_comments, post_comment, get_merge_requests, get_refs)")),
+		mcp.WithString("ref", mcp.Description("Branch name, tag, or commit SHA (1-255 characters, required for list action)")),
+		
+		// List options
+		mcp.WithObject("list_options",
+			mcp.Description("Options for list action"),
+			mcp.Properties(map[string]any{
+				"since": map[string]any{
+					"type":        "string",
+					"description": "Start date (YYYY-MM-DD, required for list action)",
+					"pattern":     "^\\d{4}-\\d{2}-\\d{2}$",
+				},
+				"until": map[string]any{
+					"type":        "string",
+					"description": "End date (YYYY-MM-DD, optional - defaults to current date)",
+					"pattern":     "^\\d{4}-\\d{2}-\\d{2}$",
+				},
+			}),
+		),
+		
+		// Search options
+		mcp.WithObject("search_options",
+			mcp.Description("Options for search action"),
+			mcp.Properties(map[string]any{
+				"author": map[string]any{
+					"type":        "string",
+					"description": "Filter by author name or email (1-100 characters)",
+					"minLength":   1,
+					"maxLength":   100,
+				},
+				"path": map[string]any{
+					"type":        "string",
+					"description": "Filter by file path (1-500 characters)",
+					"minLength":   1,
+					"maxLength":   500,
+				},
+				"since": map[string]any{
+					"type":        "string",
+					"description": "Start date (YYYY-MM-DD)",
+					"pattern":     "^\\d{4}-\\d{2}-\\d{2}$",
+				},
+				"until": map[string]any{
+					"type":        "string",
+					"description": "End date (YYYY-MM-DD)",
+					"pattern":     "^\\d{4}-\\d{2}-\\d{2}$",
+				},
+			}),
+		),
+		
+		// Comment options
+		mcp.WithObject("comment_options",
+			mcp.Description("Options for post_comment action"),
+			mcp.Properties(map[string]any{
+				"note": map[string]any{
+					"type":        "string",
+					"description": "Comment text (1-1000 characters, required for post_comment)",
+					"minLength":   1,
+					"maxLength":   1000,
+				},
+				"path": map[string]any{
+					"type":        "string",
+					"description": "File path for line-specific comment (1-500 characters)",
+					"minLength":   1,
+					"maxLength":   500,
+				},
+				"line": map[string]any{
+					"type":        "number",
+					"description": "Line number for line-specific comment (minimum: 1)",
+					"minimum":     1,
+				},
+				"line_type": map[string]any{
+					"type":        "string",
+					"description": "Line type for line-specific comment",
+					"enum":        []string{"new", "old"},
+				},
+			}),
+		),
+		
+		// Refs options
+		mcp.WithObject("refs_options",
+			mcp.Description("Options for get_refs action"),
+			mcp.Properties(map[string]any{
+				"type": map[string]any{
+					"type":        "string",
+					"description": "Reference type filter",
+					"enum":        []string{"branch", "tag"},
+				},
+			}),
+		),
 	)
 
-	commitDetailsTool := mcp.NewTool("get_commit_details",
-		mcp.WithDescription("Get details of a commit"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("commit_sha", mcp.Required(), mcp.Description("Commit SHA")),
+	// Consolidated Commit Operations Tool
+	commitOperationsTool := mcp.NewTool("commit_operations",
+		mcp.WithDescription("Perform operations on commits: cherry_pick, revert"),
+		mcp.WithString("action", mcp.Required(), mcp.Description("Operation to perform: cherry_pick, revert")),
+		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path (1-255 characters)")),
+		mcp.WithString("commit_sha", mcp.Required(), mcp.Description("Commit SHA to operate on (7-40 alphanumeric characters)")),
+		mcp.WithString("branch", mcp.Required(), mcp.Description("Target branch (1-255 characters)")),
+		
+		// Cherry-pick options
+		mcp.WithObject("cherry_pick_options",
+			mcp.Description("Options for cherry_pick action"),
+			mcp.Properties(map[string]any{
+				"dry_run": map[string]any{
+					"type":        "boolean",
+					"description": "Perform a dry run without making changes",
+					"default":     false,
+				},
+				"message": map[string]any{
+					"type":        "string",
+					"description": "Custom commit message (1-500 characters)",
+					"minLength":   1,
+					"maxLength":   500,
+				},
+			}),
+		),
 	)
 
-	// Advanced commit tools
-	searchCommitsTool := mcp.NewTool("search_commits",
-		mcp.WithDescription("Search commits by author, file path, and date range"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("author", mcp.Description("Filter by author name or email")),
-		mcp.WithString("path", mcp.Description("Filter by file path")),
-		mcp.WithString("since", mcp.Description("Start date (YYYY-MM-DD)")),
-		mcp.WithString("until", mcp.Description("End date (YYYY-MM-DD)")),
-		mcp.WithString("ref", mcp.Description("Branch name, tag, or commit SHA")),
-	)
-
-	commitCommentsTool := mcp.NewTool("get_commit_comments",
-		mcp.WithDescription("Get comments of a commit"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("commit_sha", mcp.Required(), mcp.Description("Commit SHA")),
-	)
-
-	postCommitCommentTool := mcp.NewTool("post_commit_comment",
-		mcp.WithDescription("Add a comment to a commit"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("commit_sha", mcp.Required(), mcp.Description("Commit SHA")),
-		mcp.WithString("note", mcp.Required(), mcp.Description("Comment text")),
-		mcp.WithString("path", mcp.Description("File path for line-specific comment")),
-		mcp.WithNumber("line", mcp.Description("Line number for line-specific comment")),
-		mcp.WithString("line_type", mcp.Description("Line type: 'new' or 'old'")),
-	)
-
-	commitMergeRequestsTool := mcp.NewTool("get_commit_merge_requests",
-		mcp.WithDescription("Get merge requests associated with a commit"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("commit_sha", mcp.Required(), mcp.Description("Commit SHA")),
-	)
-
-	cherryPickCommitTool := mcp.NewTool("cherry_pick_commit",
-		mcp.WithDescription("Cherry-pick a commit to another branch"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("commit_sha", mcp.Required(), mcp.Description("Commit SHA to cherry-pick")),
-		mcp.WithString("branch", mcp.Required(), mcp.Description("Target branch")),
-		mcp.WithBoolean("dry_run", mcp.Description("Perform a dry run without making changes")),
-		mcp.WithString("message", mcp.Description("Custom commit message")),
-	)
-
-	revertCommitTool := mcp.NewTool("revert_commit",
-		mcp.WithDescription("Revert a commit"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("commit_sha", mcp.Required(), mcp.Description("Commit SHA to revert")),
-		mcp.WithString("branch", mcp.Required(), mcp.Description("Target branch")),
-	)
-
-	// Register existing tools
-	s.AddTool(fileContentTool, mcp.NewTypedToolHandler(getFileContentHandler))
-	s.AddTool(commitsTool, mcp.NewTypedToolHandler(listCommitsHandler))
-	s.AddTool(commitDetailsTool, mcp.NewTypedToolHandler(getCommitDetailsHandler))
-
-	// Register new advanced commit tools
-	s.AddTool(searchCommitsTool, mcp.NewTypedToolHandler(searchCommitsHandler))
-	s.AddTool(commitCommentsTool, mcp.NewTypedToolHandler(getCommitCommentsHandler))
-	s.AddTool(postCommitCommentTool, mcp.NewTypedToolHandler(postCommitCommentHandler))
-	s.AddTool(commitMergeRequestsTool, mcp.NewTypedToolHandler(getCommitMergeRequestsHandler))
-	s.AddTool(cherryPickCommitTool, mcp.NewTypedToolHandler(cherryPickCommitHandler))
-	s.AddTool(revertCommitTool, mcp.NewTypedToolHandler(revertCommitHandler))
+	// Register consolidated tools
+	s.AddTool(repositoryFilesTool, mcp.NewTypedToolHandler(repositoryFilesHandler))
+	s.AddTool(commitsManagementTool, mcp.NewTypedToolHandler(commitsManagementHandler))
+	s.AddTool(commitOperationsTool, mcp.NewTypedToolHandler(commitOperationsHandler))
 }
 
-func getFileContentHandler(ctx context.Context, request mcp.CallToolRequest, args GetFileContentArgs) (*mcp.CallToolResult, error) {
-	ref := args.Ref
+// Consolidated handlers
+func repositoryFilesHandler(ctx context.Context, request mcp.CallToolRequest, args RepositoryFilesArgs) (*mcp.CallToolResult, error) {
+	switch args.Action {
+	case "get_content":
+		return getFileContent(ctx, args.ProjectPath, args.FilePath, args.Ref)
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("invalid action: %s. Valid actions are: get_content", args.Action)), nil
+	}
+}
+
+func commitsManagementHandler(ctx context.Context, request mcp.CallToolRequest, args CommitsManagementArgs) (*mcp.CallToolResult, error) {
+	switch args.Action {
+	case "list":
+		if args.ListOptions.Since == "" {
+			return mcp.NewToolResultError("since date is required for list action"), nil
+		}
+		if args.Ref == "" {
+			return mcp.NewToolResultError("ref is required for list action"), nil
+		}
+		return listCommits(ctx, args.ProjectPath, args.ListOptions.Since, args.ListOptions.Until, args.Ref)
+		
+	case "search":
+		return searchCommits(ctx, args.ProjectPath, args.SearchOptions.Author, args.SearchOptions.Path, 
+			args.SearchOptions.Since, args.SearchOptions.Until, args.Ref)
+		
+	case "get_details":
+		if args.CommitSHA == "" {
+			return mcp.NewToolResultError("commit_sha is required for get_details action"), nil
+		}
+		return getCommitDetails(ctx, args.ProjectPath, args.CommitSHA)
+		
+	case "get_comments":
+		if args.CommitSHA == "" {
+			return mcp.NewToolResultError("commit_sha is required for get_comments action"), nil
+		}
+		return getCommitComments(ctx, args.ProjectPath, args.CommitSHA)
+		
+	case "post_comment":
+		if args.CommitSHA == "" {
+			return mcp.NewToolResultError("commit_sha is required for post_comment action"), nil
+		}
+		if args.CommentOptions.Note == "" {
+			return mcp.NewToolResultError("note is required for post_comment action"), nil
+		}
+		return postCommitComment(ctx, args.ProjectPath, args.CommitSHA, args.CommentOptions.Note,
+			args.CommentOptions.Path, args.CommentOptions.Line, args.CommentOptions.LineType)
+		
+	case "get_merge_requests":
+		if args.CommitSHA == "" {
+			return mcp.NewToolResultError("commit_sha is required for get_merge_requests action"), nil
+		}
+		return getCommitMergeRequests(ctx, args.ProjectPath, args.CommitSHA)
+		
+	case "get_refs":
+		if args.CommitSHA == "" {
+			return mcp.NewToolResultError("commit_sha is required for get_refs action"), nil
+		}
+		return getCommitRefs(ctx, args.ProjectPath, args.CommitSHA, args.RefsOptions.Type)
+		
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("invalid action: %s. Valid actions are: list, search, get_details, get_comments, post_comment, get_merge_requests, get_refs", args.Action)), nil
+	}
+}
+
+func commitOperationsHandler(ctx context.Context, request mcp.CallToolRequest, args CommitOperationsArgs) (*mcp.CallToolResult, error) {
+	switch args.Action {
+	case "cherry_pick":
+		return cherryPickCommit(ctx, args.ProjectPath, args.CommitSHA, args.Branch,
+			args.CherryPickOptions.DryRun, args.CherryPickOptions.Message)
+		
+	case "revert":
+		return revertCommit(ctx, args.ProjectPath, args.CommitSHA, args.Branch)
+		
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("invalid action: %s. Valid actions are: cherry_pick, revert", args.Action)), nil
+	}
+}
+
+// Direct implementation functions (no more legacy handlers)
+func getFileContent(ctx context.Context, projectPath, filePath, ref string) (*mcp.CallToolResult, error) {
 	if ref == "" {
 		ref = "develop" // Default ref if not provided
 	}
 
 	// Get raw file content
-	fileContent, _, err := util.GitlabClient().RepositoryFiles.GetRawFile(args.ProjectPath, args.FilePath, &gitlab.GetRawFileOptions{
+	fileContent, _, err := util.GitlabClient().RepositoryFiles.GetRawFile(projectPath, filePath, &gitlab.GetRawFileOptions{
 		Ref: gitlab.Ptr(ref),
 	})
 	if err != nil {
@@ -192,7 +304,7 @@ func getFileContentHandler(ctx context.Context, request mcp.CallToolRequest, arg
 	var result strings.Builder
 
 	// Write file information
-	result.WriteString(fmt.Sprintf("File: %s\n", args.FilePath))
+	result.WriteString(fmt.Sprintf("File: %s\n", filePath))
 	result.WriteString(fmt.Sprintf("Ref: %s\n", ref))
 	result.WriteString("Content:\n")
 	result.WriteString(string(fileContent))
@@ -200,18 +312,16 @@ func getFileContentHandler(ctx context.Context, request mcp.CallToolRequest, arg
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func listCommitsHandler(ctx context.Context, request mcp.CallToolRequest, args ListCommitsArgs) (*mcp.CallToolResult, error) {
-	until := args.Until
+func listCommits(ctx context.Context, projectPath, since, until, ref string) (*mcp.CallToolResult, error) {
 	if until == "" {
 		until = time.Now().Format("2006-01-02")
 	}
 
-	ref := args.Ref
 	if ref == "" {
 		ref = "develop" // Default ref if not provided
 	}
 
-	sinceTime, err := time.Parse("2006-01-02", args.Since)
+	sinceTime, err := time.Parse("2006-01-02", since)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("invalid since date: %v", err)), nil
 	}
@@ -227,14 +337,14 @@ func listCommitsHandler(ctx context.Context, request mcp.CallToolRequest, args L
 		RefName: gitlab.Ptr(ref),
 	}
 
-	commits, _, err := util.GitlabClient().Commits.ListCommits(args.ProjectPath, opt)
+	commits, _, err := util.GitlabClient().Commits.ListCommits(projectPath, opt)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to list commits: %v", err)), nil
 	}
 
 	var result strings.Builder
 	result.WriteString(fmt.Sprintf("Commits for project %s between %s and %s (ref: %s):\n\n",
-		args.ProjectPath, args.Since, until, ref))
+		projectPath, since, until, ref))
 
 	for _, commit := range commits {
 		result.WriteString(fmt.Sprintf("Commit: %s\n", commit.ID))
@@ -254,8 +364,8 @@ func listCommitsHandler(ctx context.Context, request mcp.CallToolRequest, args L
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func getCommitDetailsHandler(ctx context.Context, request mcp.CallToolRequest, args GetCommitDetailsArgs) (*mcp.CallToolResult, error) {
-	commit, _, err := util.GitlabClient().Commits.GetCommit(args.ProjectPath, args.CommitSHA, nil)
+func getCommitDetails(ctx context.Context, projectPath, commitSHA string) (*mcp.CallToolResult, error) {
+	commit, _, err := util.GitlabClient().Commits.GetCommit(projectPath, commitSHA, nil)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to get commit details: %v", err)), nil
 	}
@@ -266,7 +376,7 @@ func getCommitDetailsHandler(ctx context.Context, request mcp.CallToolRequest, a
 		},
 	}
 
-	diffs, _, err := util.GitlabClient().Commits.GetCommitDiff(args.ProjectPath, args.CommitSHA, opt)
+	diffs, _, err := util.GitlabClient().Commits.GetCommitDiff(projectPath, commitSHA, opt)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to get commit diffs: %v", err)), nil
 	}
@@ -315,52 +425,51 @@ func getDiffStatus(diff *gitlab.Diff) string {
 	return "Modified"
 }
 
-// Advanced commit handlers
-func searchCommitsHandler(ctx context.Context, request mcp.CallToolRequest, args SearchCommitsArgs) (*mcp.CallToolResult, error) {
+func searchCommits(ctx context.Context, projectPath, author, path, since, until, ref string) (*mcp.CallToolResult, error) {
 	opt := &gitlab.ListCommitsOptions{
 		ListOptions: gitlab.ListOptions{PerPage: 100},
 	}
 
-	if args.Author != "" {
-		opt.Author = gitlab.Ptr(args.Author)
+	if author != "" {
+		opt.Author = gitlab.Ptr(author)
 	}
-	if args.Path != "" {
-		opt.Path = gitlab.Ptr(args.Path)
+	if path != "" {
+		opt.Path = gitlab.Ptr(path)
 	}
-	if args.Ref != "" {
-		opt.RefName = gitlab.Ptr(args.Ref)
+	if ref != "" {
+		opt.RefName = gitlab.Ptr(ref)
 	} else {
 		opt.RefName = gitlab.Ptr("develop")
 	}
 
-	if args.Since != "" {
-		sinceTime, err := time.Parse("2006-01-02", args.Since)
+	if since != "" {
+		sinceTime, err := time.Parse("2006-01-02", since)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("invalid since date: %v", err)), nil
 		}
 		opt.Since = gitlab.Ptr(sinceTime)
 	}
 
-	if args.Until != "" {
-		untilTime, err := time.Parse("2006-01-02 15:04:05", args.Until+" 23:00:00")
+	if until != "" {
+		untilTime, err := time.Parse("2006-01-02 15:04:05", until+" 23:00:00")
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("invalid until date: %v", err)), nil
 		}
 		opt.Until = gitlab.Ptr(untilTime)
 	}
 
-	commits, _, err := util.GitlabClient().Commits.ListCommits(args.ProjectPath, opt)
+	commits, _, err := util.GitlabClient().Commits.ListCommits(projectPath, opt)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to search commits: %v", err)), nil
 	}
 
 	var result strings.Builder
-	result.WriteString(fmt.Sprintf("Search results for project %s:\n", args.ProjectPath))
-	if args.Author != "" {
-		result.WriteString(fmt.Sprintf("Author: %s\n", args.Author))
+	result.WriteString(fmt.Sprintf("Search results for project %s:\n", projectPath))
+	if author != "" {
+		result.WriteString(fmt.Sprintf("Author: %s\n", author))
 	}
-	if args.Path != "" {
-		result.WriteString(fmt.Sprintf("Path: %s\n", args.Path))
+	if path != "" {
+		result.WriteString(fmt.Sprintf("Path: %s\n", path))
 	}
 	result.WriteString(fmt.Sprintf("Found %d commits:\n\n", len(commits)))
 
@@ -375,14 +484,14 @@ func searchCommitsHandler(ctx context.Context, request mcp.CallToolRequest, args
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func getCommitCommentsHandler(ctx context.Context, request mcp.CallToolRequest, args GetCommitCommentsArgs) (*mcp.CallToolResult, error) {
-	comments, _, err := util.GitlabClient().Commits.GetCommitComments(args.ProjectPath, args.CommitSHA, nil)
+func getCommitComments(ctx context.Context, projectPath, commitSHA string) (*mcp.CallToolResult, error) {
+	comments, _, err := util.GitlabClient().Commits.GetCommitComments(projectPath, commitSHA, nil)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to get commit comments: %v", err)), nil
 	}
 
 	var result strings.Builder
-	result.WriteString(fmt.Sprintf("Comments for commit %s:\n\n", args.CommitSHA))
+	result.WriteString(fmt.Sprintf("Comments for commit %s:\n\n", commitSHA))
 
 	if len(comments) == 0 {
 		result.WriteString("No comments found.\n")
@@ -405,28 +514,28 @@ func getCommitCommentsHandler(ctx context.Context, request mcp.CallToolRequest, 
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func postCommitCommentHandler(ctx context.Context, request mcp.CallToolRequest, args PostCommitCommentArgs) (*mcp.CallToolResult, error) {
+func postCommitComment(ctx context.Context, projectPath, commitSHA, note, path string, line int, lineType string) (*mcp.CallToolResult, error) {
 	opt := &gitlab.PostCommitCommentOptions{
-		Note: gitlab.Ptr(args.Note),
+		Note: gitlab.Ptr(note),
 	}
 
-	if args.Path != "" {
-		opt.Path = gitlab.Ptr(args.Path)
+	if path != "" {
+		opt.Path = gitlab.Ptr(path)
 	}
-	if args.Line > 0 {
-		opt.Line = gitlab.Ptr(args.Line)
+	if line > 0 {
+		opt.Line = gitlab.Ptr(line)
 	}
-	if args.LineType != "" {
-		opt.LineType = gitlab.Ptr(args.LineType)
+	if lineType != "" {
+		opt.LineType = gitlab.Ptr(lineType)
 	}
 
-	comment, _, err := util.GitlabClient().Commits.PostCommitComment(args.ProjectPath, args.CommitSHA, opt)
+	comment, _, err := util.GitlabClient().Commits.PostCommitComment(projectPath, commitSHA, opt)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to post commit comment: %v", err)), nil
 	}
 
 	var result strings.Builder
-	result.WriteString(fmt.Sprintf("Comment posted successfully to commit %s:\n\n", args.CommitSHA))
+	result.WriteString(fmt.Sprintf("Comment posted successfully to commit %s:\n\n", commitSHA))
 	result.WriteString(fmt.Sprintf("Author: %s <%s>\n", comment.Author.Name, comment.Author.Email))
 	result.WriteString(fmt.Sprintf("Note: %s\n", comment.Note))
 	if comment.Path != "" {
@@ -440,53 +549,14 @@ func postCommitCommentHandler(ctx context.Context, request mcp.CallToolRequest, 
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func getCommitStatusesHandler(ctx context.Context, request mcp.CallToolRequest, args GetCommitStatusesArgs) (*mcp.CallToolResult, error) {
-	opt := &gitlab.GetCommitStatusesOptions{}
-	if args.Ref != "" {
-		opt.Ref = gitlab.Ptr(args.Ref)
-	}
-
-	statuses, _, err := util.GitlabClient().Commits.GetCommitStatuses(args.ProjectPath, args.CommitSHA, opt)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to get commit statuses: %v", err)), nil
-	}
-
-	var result strings.Builder
-	result.WriteString(fmt.Sprintf("Pipeline statuses for commit %s:\n\n", args.CommitSHA))
-
-	if len(statuses) == 0 {
-		result.WriteString("No pipeline statuses found.\n")
-	} else {
-		for _, status := range statuses {
-			result.WriteString(fmt.Sprintf("Status: %s\n", status.Status))
-			result.WriteString(fmt.Sprintf("Name: %s\n", status.Name))
-			result.WriteString(fmt.Sprintf("Ref: %s\n", status.Ref))
-			result.WriteString(fmt.Sprintf("Description: %s\n", status.Description))
-			result.WriteString(fmt.Sprintf("Created: %s\n", status.CreatedAt.Format("2006-01-02 15:04:05")))
-			if status.StartedAt != nil {
-				result.WriteString(fmt.Sprintf("Started: %s\n", status.StartedAt.Format("2006-01-02 15:04:05")))
-			}
-			if status.FinishedAt != nil {
-				result.WriteString(fmt.Sprintf("Finished: %s\n", status.FinishedAt.Format("2006-01-02 15:04:05")))
-			}
-			if status.TargetURL != "" {
-				result.WriteString(fmt.Sprintf("URL: %s\n", status.TargetURL))
-			}
-			result.WriteString("\n")
-		}
-	}
-
-	return mcp.NewToolResultText(result.String()), nil
-}
-
-func getCommitMergeRequestsHandler(ctx context.Context, request mcp.CallToolRequest, args GetCommitMergeRequestsArgs) (*mcp.CallToolResult, error) {
-	mrs, _, err := util.GitlabClient().Commits.ListMergeRequestsByCommit(args.ProjectPath, args.CommitSHA)
+func getCommitMergeRequests(ctx context.Context, projectPath, commitSHA string) (*mcp.CallToolResult, error) {
+	mrs, _, err := util.GitlabClient().Commits.ListMergeRequestsByCommit(projectPath, commitSHA)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to get commit merge requests: %v", err)), nil
 	}
 
 	var result strings.Builder
-	result.WriteString(fmt.Sprintf("Merge requests associated with commit %s:\n\n", args.CommitSHA))
+	result.WriteString(fmt.Sprintf("Merge requests associated with commit %s:\n\n", commitSHA))
 
 	if len(mrs) == 0 {
 		result.WriteString("No merge requests found.\n")
@@ -503,48 +573,28 @@ func getCommitMergeRequestsHandler(ctx context.Context, request mcp.CallToolRequ
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func getCommitGPGSignatureHandler(ctx context.Context, request mcp.CallToolRequest, args GetCommitGPGSignatureArgs) (*mcp.CallToolResult, error) {
-	signature, _, err := util.GitlabClient().Commits.GetGPGSignature(args.ProjectPath, args.CommitSHA)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to get GPG signature: %v", err)), nil
-	}
-
-	var result strings.Builder
-	result.WriteString(fmt.Sprintf("GPG signature for commit %s:\n\n", args.CommitSHA))
-	result.WriteString(fmt.Sprintf("Key ID: %d\n", signature.KeyID))
-	result.WriteString(fmt.Sprintf("Primary Key ID: %s\n", signature.KeyPrimaryKeyID))
-	result.WriteString(fmt.Sprintf("User Name: %s\n", signature.KeyUserName))
-	result.WriteString(fmt.Sprintf("User Email: %s\n", signature.KeyUserEmail))
-	result.WriteString(fmt.Sprintf("Verification Status: %s\n", signature.VerificationStatus))
-	if signature.KeySubkeyID > 0 {
-		result.WriteString(fmt.Sprintf("Subkey ID: %d\n", signature.KeySubkeyID))
-	}
-
-	return mcp.NewToolResultText(result.String()), nil
-}
-
-func cherryPickCommitHandler(ctx context.Context, request mcp.CallToolRequest, args CherryPickCommitArgs) (*mcp.CallToolResult, error) {
+func cherryPickCommit(ctx context.Context, projectPath, commitSHA, branch string, dryRun bool, message string) (*mcp.CallToolResult, error) {
 	opt := &gitlab.CherryPickCommitOptions{
-		Branch: gitlab.Ptr(args.Branch),
+		Branch: gitlab.Ptr(branch),
 	}
 
-	if args.DryRun {
+	if dryRun {
 		opt.DryRun = gitlab.Ptr(true)
 	}
-	if args.Message != "" {
-		opt.Message = gitlab.Ptr(args.Message)
+	if message != "" {
+		opt.Message = gitlab.Ptr(message)
 	}
 
-	commit, _, err := util.GitlabClient().Commits.CherryPickCommit(args.ProjectPath, args.CommitSHA, opt)
+	commit, _, err := util.GitlabClient().Commits.CherryPickCommit(projectPath, commitSHA, opt)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to cherry-pick commit: %v", err)), nil
 	}
 
 	var result strings.Builder
-	if args.DryRun {
-		result.WriteString(fmt.Sprintf("Dry run: Cherry-pick of commit %s to branch %s would succeed.\n\n", args.CommitSHA, args.Branch))
+	if dryRun {
+		result.WriteString(fmt.Sprintf("Dry run: Cherry-pick of commit %s to branch %s would succeed.\n\n", commitSHA, branch))
 	} else {
-		result.WriteString(fmt.Sprintf("Successfully cherry-picked commit %s to branch %s:\n\n", args.CommitSHA, args.Branch))
+		result.WriteString(fmt.Sprintf("Successfully cherry-picked commit %s to branch %s:\n\n", commitSHA, branch))
 	}
 
 	result.WriteString(fmt.Sprintf("New Commit: %s\n", commit.ID))
@@ -556,18 +606,18 @@ func cherryPickCommitHandler(ctx context.Context, request mcp.CallToolRequest, a
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func revertCommitHandler(ctx context.Context, request mcp.CallToolRequest, args RevertCommitArgs) (*mcp.CallToolResult, error) {
+func revertCommit(ctx context.Context, projectPath, commitSHA, branch string) (*mcp.CallToolResult, error) {
 	opt := &gitlab.RevertCommitOptions{
-		Branch: gitlab.Ptr(args.Branch),
+		Branch: gitlab.Ptr(branch),
 	}
 
-	commit, _, err := util.GitlabClient().Commits.RevertCommit(args.ProjectPath, args.CommitSHA, opt)
+	commit, _, err := util.GitlabClient().Commits.RevertCommit(projectPath, commitSHA, opt)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to revert commit: %v", err)), nil
 	}
 
 	var result strings.Builder
-	result.WriteString(fmt.Sprintf("Successfully reverted commit %s on branch %s:\n\n", args.CommitSHA, args.Branch))
+	result.WriteString(fmt.Sprintf("Successfully reverted commit %s on branch %s:\n\n", commitSHA, branch))
 	result.WriteString(fmt.Sprintf("Revert Commit: %s\n", commit.ID))
 	result.WriteString(fmt.Sprintf("Author: %s\n", commit.AuthorName))
 	result.WriteString(fmt.Sprintf("Date: %s\n", commit.CommittedDate.Format("2006-01-02 15:04:05")))
@@ -577,19 +627,19 @@ func revertCommitHandler(ctx context.Context, request mcp.CallToolRequest, args 
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func getCommitRefsHandler(ctx context.Context, request mcp.CallToolRequest, args GetCommitRefsArgs) (*mcp.CallToolResult, error) {
+func getCommitRefs(ctx context.Context, projectPath, commitSHA, refType string) (*mcp.CallToolResult, error) {
 	opt := &gitlab.GetCommitRefsOptions{}
-	if args.Type != "" {
-		opt.Type = gitlab.Ptr(args.Type)
+	if refType != "" {
+		opt.Type = gitlab.Ptr(refType)
 	}
 
-	refs, _, err := util.GitlabClient().Commits.GetCommitRefs(args.ProjectPath, args.CommitSHA, opt)
+	refs, _, err := util.GitlabClient().Commits.GetCommitRefs(projectPath, commitSHA, opt)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to get commit refs: %v", err)), nil
 	}
 
 	var result strings.Builder
-	result.WriteString(fmt.Sprintf("References containing commit %s:\n\n", args.CommitSHA))
+	result.WriteString(fmt.Sprintf("References containing commit %s:\n\n", commitSHA))
 
 	if len(refs) == 0 {
 		result.WriteString("No references found.\n")

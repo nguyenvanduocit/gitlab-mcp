@@ -12,177 +12,620 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
+// Consolidated MR Management Args with action-based approach
+type MergeRequestManagementArgs struct {
+	Action      string `json:"action" validate:"required,oneof=list get create update accept rebase changes"`
+	ProjectPath string `json:"project_path" validate:"required,min=1"`
+	MrIID       string `json:"mr_iid,omitempty" validate:"omitempty,min=1"`
+	
+	// List action specific
+	ListOptions struct {
+		State string `json:"state" validate:"omitempty,oneof=opened closed merged all"`
+	} `json:"list_options,omitempty"`
+	
+	// Create action specific
+	CreateOptions struct {
+		SourceBranch string `json:"source_branch" validate:"required_with=CreateOptions,min=1"`
+		TargetBranch string `json:"target_branch" validate:"required_with=CreateOptions,min=1"`
+		Title        string `json:"title" validate:"required_with=CreateOptions,min=1,max=255"`
+		Description  string `json:"description" validate:"max=1000000"`
+	} `json:"create_options,omitempty"`
+	
+	// Update action specific
+	UpdateOptions struct {
+		Title                string `json:"title,omitempty" validate:"omitempty,min=1,max=255"`
+		Description          string `json:"description,omitempty" validate:"max=1000000"`
+		TargetBranch         string `json:"target_branch,omitempty" validate:"omitempty,min=1"`
+		StateEvent           string `json:"state_event,omitempty" validate:"omitempty,oneof=close reopen"`
+		AssigneeID           int    `json:"assignee_id,omitempty" validate:"omitempty,min=1"`
+		MilestoneID          int    `json:"milestone_id,omitempty" validate:"omitempty,min=1"`
+		Labels               string `json:"labels,omitempty"`
+		RemoveSourceBranch   bool   `json:"remove_source_branch,omitempty"`
+		Squash               bool   `json:"squash,omitempty"`
+		DiscussionLocked     bool   `json:"discussion_locked,omitempty"`
+	} `json:"update_options,omitempty"`
+	
+	// Accept/Merge action specific
+	AcceptOptions struct {
+		MergeCommitMessage        string `json:"merge_commit_message,omitempty" validate:"max=1000"`
+		SquashCommitMessage       string `json:"squash_commit_message,omitempty" validate:"max=1000"`
+		Squash                    bool   `json:"squash,omitempty"`
+		ShouldRemoveSourceBranch  bool   `json:"should_remove_source_branch,omitempty"`
+		MergeWhenPipelineSucceeds bool   `json:"merge_when_pipeline_succeeds,omitempty"`
+	} `json:"accept_options,omitempty"`
+	
+	// Rebase action specific
+	RebaseOptions struct {
+		SkipCI bool `json:"skip_ci,omitempty"`
+	} `json:"rebase_options,omitempty"`
+	
+	// Changes action specific
+	ChangesOptions struct {
+		AccessRawDiffs bool `json:"access_raw_diffs,omitempty"`
+		Unidiff        bool `json:"unidiff,omitempty"`
+	} `json:"changes_options,omitempty"`
+}
+
+// Consolidated MR Comments Args with action-based approach
+type MergeRequestCommentsArgs struct {
+	Action      string `json:"action" validate:"required,oneof=list create"`
+	ProjectPath string `json:"project_path" validate:"required,min=1"`
+	MrIID       string `json:"mr_iid" validate:"required,min=1"`
+	
+	// Create comment specific
+	CommentOptions struct {
+		Comment string `json:"comment" validate:"required_with=CommentOptions,min=1,max=1000000"`
+	} `json:"comment_options,omitempty"`
+}
+
+// Consolidated MR Pipeline Args with action-based approach
+type MergeRequestPipelineArgs struct {
+	Action      string `json:"action" validate:"required,oneof=list create"`
+	ProjectPath string `json:"project_path" validate:"required,min=1"`
+	MrIID       string `json:"mr_iid" validate:"required,min=1"`
+}
+
+// Legacy individual args for backward compatibility
 type ListMergeRequestsArgs struct {
-	ProjectPath string `json:"project_path"`
-	State       string `json:"state"`
+	ProjectPath string `json:"project_path" validate:"required,min=1"`
+	State       string `json:"state" validate:"omitempty,oneof=opened closed merged all"`
 }
 
 type GetMergeRequestArgs struct {
-	ProjectPath string `json:"project_path"`
-	MrIID       string `json:"mr_iid"`
+	ProjectPath string `json:"project_path" validate:"required,min=1"`
+	MrIID       string `json:"mr_iid" validate:"required,min=1"`
 }
 
 type CreateMRNoteArgs struct {
-	ProjectPath string `json:"project_path"`
-	MrIID       string `json:"mr_iid"`
-	Comment     string `json:"comment"`
+	ProjectPath string `json:"project_path" validate:"required,min=1"`
+	MrIID       string `json:"mr_iid" validate:"required,min=1"`
+	Comment     string `json:"comment" validate:"required,min=1,max=1000000"`
 }
 
 type ListMRCommentsArgs struct {
-	ProjectPath string `json:"project_path"`
-	MrIID       string `json:"mr_iid"`
+	ProjectPath string `json:"project_path" validate:"required,min=1"`
+	MrIID       string `json:"mr_iid" validate:"required,min=1"`
 }
 
 type CreateMergeRequestArgs struct {
-	ProjectPath  string `json:"project_path"`
-	SourceBranch string `json:"source_branch"`
-	TargetBranch string `json:"target_branch"`
-	Title        string `json:"title"`
-	Description  string `json:"description"`
+	ProjectPath  string `json:"project_path" validate:"required,min=1"`
+	SourceBranch string `json:"source_branch" validate:"required,min=1"`
+	TargetBranch string `json:"target_branch" validate:"required,min=1"`
+	Title        string `json:"title" validate:"required,min=1,max=255"`
+	Description  string `json:"description" validate:"max=1000000"`
 }
 
 type AcceptMergeRequestArgs struct {
-	ProjectPath             string `json:"project_path"`
-	MrIID                   string `json:"mr_iid"`
-	MergeCommitMessage      string `json:"merge_commit_message,omitempty"`
-	SquashCommitMessage     string `json:"squash_commit_message,omitempty"`
-	Squash                  bool   `json:"squash,omitempty"`
-	ShouldRemoveSourceBranch bool  `json:"should_remove_source_branch,omitempty"`
-	MergeWhenPipelineSucceeds bool  `json:"merge_when_pipeline_succeeds,omitempty"`
+	ProjectPath               string `json:"project_path" validate:"required,min=1"`
+	MrIID                     string `json:"mr_iid" validate:"required,min=1"`
+	MergeCommitMessage        string `json:"merge_commit_message,omitempty" validate:"max=1000"`
+	SquashCommitMessage       string `json:"squash_commit_message,omitempty" validate:"max=1000"`
+	Squash                    bool   `json:"squash,omitempty"`
+	ShouldRemoveSourceBranch  bool   `json:"should_remove_source_branch,omitempty"`
+	MergeWhenPipelineSucceeds bool   `json:"merge_when_pipeline_succeeds,omitempty"`
 }
 
 type UpdateMergeRequestArgs struct {
-	ProjectPath      string `json:"project_path"`
-	MrIID           string `json:"mr_iid"`
-	Title           string `json:"title,omitempty"`
-	Description     string `json:"description,omitempty"`
-	TargetBranch    string `json:"target_branch,omitempty"`
-	StateEvent      string `json:"state_event,omitempty"`
-	AssigneeID      int    `json:"assignee_id,omitempty"`
-	MilestoneID     int    `json:"milestone_id,omitempty"`
-	Labels          string `json:"labels,omitempty"`
-	RemoveSourceBranch bool `json:"remove_source_branch,omitempty"`
-	Squash          bool   `json:"squash,omitempty"`
-	DiscussionLocked bool  `json:"discussion_locked,omitempty"`
+	ProjectPath        string `json:"project_path" validate:"required,min=1"`
+	MrIID             string `json:"mr_iid" validate:"required,min=1"`
+	Title             string `json:"title,omitempty" validate:"omitempty,min=1,max=255"`
+	Description       string `json:"description,omitempty" validate:"max=1000000"`
+	TargetBranch      string `json:"target_branch,omitempty" validate:"omitempty,min=1"`
+	StateEvent        string `json:"state_event,omitempty" validate:"omitempty,oneof=close reopen"`
+	AssigneeID        int    `json:"assignee_id,omitempty" validate:"omitempty,min=1"`
+	MilestoneID       int    `json:"milestone_id,omitempty" validate:"omitempty,min=1"`
+	Labels            string `json:"labels,omitempty"`
+	RemoveSourceBranch bool  `json:"remove_source_branch,omitempty"`
+	Squash            bool   `json:"squash,omitempty"`
+	DiscussionLocked  bool   `json:"discussion_locked,omitempty"`
 }
 
 type GetMRApprovalsArgs struct {
-	ProjectPath string `json:"project_path"`
-	MrIID       string `json:"mr_iid"`
+	ProjectPath string `json:"project_path" validate:"required,min=1"`
+	MrIID       string `json:"mr_iid" validate:"required,min=1"`
 }
 
 type GetMRParticipantsArgs struct {
-	ProjectPath string `json:"project_path"`
-	MrIID       string `json:"mr_iid"`
+	ProjectPath string `json:"project_path" validate:"required,min=1"`
+	MrIID       string `json:"mr_iid" validate:"required,min=1"`
 }
 
 type GetMRPipelinesArgs struct {
-	ProjectPath string `json:"project_path"`
-	MrIID       string `json:"mr_iid"`
+	ProjectPath string `json:"project_path" validate:"required,min=1"`
+	MrIID       string `json:"mr_iid" validate:"required,min=1"`
 }
 
 type GetMRCommitsArgs struct {
-	ProjectPath string `json:"project_path"`
-	MrIID       string `json:"mr_iid"`
+	ProjectPath string `json:"project_path" validate:"required,min=1"`
+	MrIID       string `json:"mr_iid" validate:"required,min=1"`
 }
 
 type CreateMRPipelineArgs struct {
-	ProjectPath string `json:"project_path"`
-	MrIID       string `json:"mr_iid"`
+	ProjectPath string `json:"project_path" validate:"required,min=1"`
+	MrIID       string `json:"mr_iid" validate:"required,min=1"`
 }
 
 type RebaseMRArgs struct {
-	ProjectPath string `json:"project_path"`
-	MrIID       string `json:"mr_iid"`
+	ProjectPath string `json:"project_path" validate:"required,min=1"`
+	MrIID       string `json:"mr_iid" validate:"required,min=1"`
 	SkipCI      bool   `json:"skip_ci,omitempty"`
 }
 
 type GetMRChangesArgs struct {
-	ProjectPath    string `json:"project_path"`
-	MrIID          string `json:"mr_iid"`
+	ProjectPath    string `json:"project_path" validate:"required,min=1"`
+	MrIID          string `json:"mr_iid" validate:"required,min=1"`
 	AccessRawDiffs bool   `json:"access_raw_diffs,omitempty"`
 	Unidiff        bool   `json:"unidiff,omitempty"`
 }
 
 func RegisterMergeRequestTools(s *server.MCPServer) {
-	mrListTool := mcp.NewTool("list_mrs",
-		mcp.WithDescription("List merge requests"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("state", mcp.DefaultString("all"), mcp.Description("MR state (opened/closed/merged)")),
+	// Consolidated MR Management Tool
+	mrManagementTool := mcp.NewTool("manage_merge_request",
+		mcp.WithDescription("Comprehensive merge request management with multiple actions: list, get, create, update, accept, rebase, changes"),
+		mcp.WithString("action", 
+			mcp.Required(), 
+			mcp.Description("Action to perform: list, get, create, update, accept, rebase, changes")),
+		mcp.WithString("project_path", 
+			mcp.Required(), 
+			mcp.Description("Project/repo path")),
+		mcp.WithString("mr_iid", 
+			mcp.Description("Merge request IID (required for get, update, accept, rebase, changes actions)")),
+		
+		// List options
+		mcp.WithObject("list_options",
+			mcp.Description("Options for list action"),
+			mcp.Properties(map[string]any{
+				"state": map[string]any{
+					"type":        "string",
+					"description": "MR state (opened/closed/merged/all)",
+					"default":     "all",
+				},
+			}),
+		),
+		
+		// Create options
+		mcp.WithObject("create_options",
+			mcp.Description("Options for create action"),
+			mcp.Properties(map[string]any{
+				"source_branch": map[string]any{
+					"type":        "string",
+					"description": "Source branch name",
+				},
+				"target_branch": map[string]any{
+					"type":        "string", 
+					"description": "Target branch name",
+				},
+				"title": map[string]any{
+					"type":        "string",
+					"description": "Merge request title",
+				},
+				"description": map[string]any{
+					"type":        "string",
+					"description": "Merge request description",
+				},
+			}),
+		),
+		
+		// Update options
+		mcp.WithObject("update_options",
+			mcp.Description("Options for update action"),
+			mcp.Properties(map[string]any{
+				"title": map[string]any{
+					"type":        "string",
+					"description": "New title for the issue",
+				},
+				"description": map[string]any{
+					"type":        "string",
+					"description": "New description",
+				},
+				"target_branch": map[string]any{
+					"type":        "string",
+					"description": "New target branch",
+				},
+				"state_event": map[string]any{
+					"type":        "string",
+					"description": "State event (close, reopen)",
+				},
+				"assignee_id": map[string]any{
+					"type":        "integer",
+					"description": "Assignee user ID",
+				},
+				"milestone_id": map[string]any{
+					"type":        "integer",
+					"description": "Milestone ID",
+				},
+				"labels": map[string]any{
+					"type":        "string",
+					"description": "Comma-separated list of labels",
+				},
+				"remove_source_branch": map[string]any{
+					"type":        "boolean",
+					"description": "Remove source branch after merge",
+				},
+				"squash": map[string]any{
+					"type":        "boolean",
+					"description": "Squash commits when merging",
+				},
+				"discussion_locked": map[string]any{
+					"type":        "boolean",
+					"description": "Lock discussions",
+				},
+			}),
+		),
+		
+		// Accept options
+		mcp.WithObject("accept_options",
+			mcp.Description("Options for accept action"),
+			mcp.Properties(map[string]any{
+				"merge_commit_message": map[string]any{
+					"type":        "string",
+					"description": "Custom merge commit message",
+				},
+				"squash_commit_message": map[string]any{
+					"type":        "string",
+					"description": "Custom squash commit message",
+				},
+				"squash": map[string]any{
+					"type":        "boolean",
+					"description": "Squash commits when merging",
+				},
+				"should_remove_source_branch": map[string]any{
+					"type":        "boolean",
+					"description": "Remove source branch after merge",
+				},
+				"merge_when_pipeline_succeeds": map[string]any{
+					"type":        "boolean",
+					"description": "Merge when pipeline succeeds",
+				},
+			}),
+		),
+		
+		// Rebase options
+		mcp.WithObject("rebase_options",
+			mcp.Description("Options for rebase action"),
+			mcp.Properties(map[string]any{
+				"skip_ci": map[string]any{
+					"type":        "boolean",
+					"description": "Skip CI for rebase",
+				},
+			}),
+		),
+		
+		// Changes options
+		mcp.WithObject("changes_options",
+			mcp.Description("Options for changes action"),
+			mcp.Properties(map[string]any{
+				"access_raw_diffs": map[string]any{
+					"type":        "boolean",
+					"description": "Access raw diffs",
+				},
+				"unidiff": map[string]any{
+					"type":        "boolean",
+					"description": "Show unified diff format",
+				},
+			}),
+		),
 	)
 
-	mrDetailsTool := mcp.NewTool("get_mr_details",
-		mcp.WithDescription("Get merge request details"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
+	// Consolidated MR Comments Tool
+	mrCommentsTool := mcp.NewTool("manage_merge_request_comments",
+		mcp.WithDescription("Manage merge request comments with actions: list, create"),
+		mcp.WithString("action", 
+			mcp.Required(), 
+			mcp.Description("Action to perform: list, create")),
+		mcp.WithString("project_path", 
+			mcp.Required(), 
+			mcp.Description("Project/repo path")),
+		mcp.WithString("mr_iid", 
+			mcp.Required(), 
+			mcp.Description("Merge request IID")),
+		
+		// Comment options
+		mcp.WithObject("comment_options",
+			mcp.Description("Options for create action"),
+			mcp.Properties(map[string]any{
+				"comment": map[string]any{
+					"type":        "string",
+					"description": "Comment text",
+				},
+			}),
+		),
 	)
 
-	mrCommentTool := mcp.NewTool("create_mr_note",
-		mcp.WithDescription("Create a note on a merge request"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
-		mcp.WithString("comment", mcp.Required(), mcp.Description("Comment text")),
+	// Consolidated MR Pipeline Tool
+	mrPipelineTool := mcp.NewTool("manage_merge_request_pipeline",
+		mcp.WithDescription("Manage merge request pipelines with actions: list, create"),
+		mcp.WithString("action", 
+			mcp.Required(), 
+			mcp.Description("Action to perform: list, create")),
+		mcp.WithString("project_path", 
+			mcp.Required(), 
+			mcp.Description("Project/repo path")),
+		mcp.WithString("mr_iid", 
+			mcp.Required(), 
+			mcp.Description("Merge request IID")),
 	)
 
-	listMRCommentsTool := mcp.NewTool("list_mr_comments",
-		mcp.WithDescription("List all comments on a merge request"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
-	)
-
-	createMRTool := mcp.NewTool("create_mr",
-		mcp.WithDescription("Create a new merge request"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("source_branch", mcp.Required(), mcp.Description("Source branch name")),
-		mcp.WithString("target_branch", mcp.Required(), mcp.Description("Target branch name")),
-		mcp.WithString("title", mcp.Required(), mcp.Description("Merge request title")),
-		mcp.WithString("description", mcp.Description("Merge request description")),
-	)
-
-	getMRPipelinesTool := mcp.NewTool("get_mr_pipelines",
-		mcp.WithDescription("Get merge request CI/CD pipelines"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
-	)
-
+	// MR Commits Tool (standalone as it's unique)
 	getMRCommitsTool := mcp.NewTool("get_mr_commits",
 		mcp.WithDescription("Get merge request commits"),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
 		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
 	)
 
-	createMRPipelineTool := mcp.NewTool("create_mr_pipeline",
-		mcp.WithDescription("Create a new pipeline for a merge request"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
-	)
-
-	rebaseMRTool := mcp.NewTool("rebase_mr",
-		mcp.WithDescription("Rebase a merge request"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
-		mcp.WithBoolean("skip_ci", mcp.Description("Skip CI for rebase")),
-	)
-
-	getMRChangesTool := mcp.NewTool("get_mr_changes",
-		mcp.WithDescription("Get merge request changes (deprecated, use get_mr_details instead)"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithString("mr_iid", mcp.Required(), mcp.Description("Merge request IID")),
-		mcp.WithBoolean("access_raw_diffs", mcp.Description("Access raw diffs")),
-		mcp.WithBoolean("unidiff", mcp.Description("Show unified diff format")),
-	)
-
-	// Register all tools
-	s.AddTool(mrListTool, mcp.NewTypedToolHandler(listMergeRequestsHandler))
-	s.AddTool(mrDetailsTool, mcp.NewTypedToolHandler(getMergeRequestHandler))
-	s.AddTool(mrCommentTool, mcp.NewTypedToolHandler(commentOnMergeRequestHandler))
-	s.AddTool(listMRCommentsTool, mcp.NewTypedToolHandler(listMRCommentsHandler))
-	s.AddTool(createMRTool, mcp.NewTypedToolHandler(createMergeRequestHandler))
-	s.AddTool(getMRPipelinesTool, mcp.NewTypedToolHandler(getMRPipelinesHandler))
+	// Register consolidated tools
+	s.AddTool(mrManagementTool, mcp.NewTypedToolHandler(mergeRequestManagementHandler))
+	s.AddTool(mrCommentsTool, mcp.NewTypedToolHandler(mergeRequestCommentsHandler))
+	s.AddTool(mrPipelineTool, mcp.NewTypedToolHandler(mergeRequestPipelineHandler))
 	s.AddTool(getMRCommitsTool, mcp.NewTypedToolHandler(getMRCommitsHandler))
-	s.AddTool(createMRPipelineTool, mcp.NewTypedToolHandler(createMRPipelineHandler))
-	s.AddTool(rebaseMRTool, mcp.NewTypedToolHandler(rebaseMRHandler))
-	s.AddTool(getMRChangesTool, mcp.NewTypedToolHandler(getMRChangesHandler))
+}
+
+// Consolidated MR Management Handler
+func mergeRequestManagementHandler(ctx context.Context, request mcp.CallToolRequest, args MergeRequestManagementArgs) (*mcp.CallToolResult, error) {
+	switch args.Action {
+	case "list":
+		state := "all"
+		if args.ListOptions.State != "" {
+			state = args.ListOptions.State
+		}
+		return listMergeRequestsHandler(ctx, request, ListMergeRequestsArgs{
+			ProjectPath: args.ProjectPath,
+			State:       state,
+		})
+	
+	case "get":
+		if args.MrIID == "" {
+			return mcp.NewToolResultError("mr_iid is required for get action"), nil
+		}
+		return getMergeRequestHandler(ctx, request, GetMergeRequestArgs{
+			ProjectPath: args.ProjectPath,
+			MrIID:       args.MrIID,
+		})
+	
+	case "create":
+		if args.CreateOptions.SourceBranch == "" || args.CreateOptions.TargetBranch == "" || args.CreateOptions.Title == "" {
+			return mcp.NewToolResultError("source_branch, target_branch, and title are required for create action"), nil
+		}
+		return createMergeRequestHandler(ctx, request, CreateMergeRequestArgs{
+			ProjectPath:  args.ProjectPath,
+			SourceBranch: args.CreateOptions.SourceBranch,
+			TargetBranch: args.CreateOptions.TargetBranch,
+			Title:        args.CreateOptions.Title,
+			Description:  args.CreateOptions.Description,
+		})
+	
+	case "update":
+		if args.MrIID == "" {
+			return mcp.NewToolResultError("mr_iid is required for update action"), nil
+		}
+		return updateMergeRequestHandler(ctx, request, UpdateMergeRequestArgs{
+			ProjectPath:        args.ProjectPath,
+			MrIID:             args.MrIID,
+			Title:             args.UpdateOptions.Title,
+			Description:       args.UpdateOptions.Description,
+			TargetBranch:      args.UpdateOptions.TargetBranch,
+			StateEvent:        args.UpdateOptions.StateEvent,
+			AssigneeID:        args.UpdateOptions.AssigneeID,
+			MilestoneID:       args.UpdateOptions.MilestoneID,
+			Labels:            args.UpdateOptions.Labels,
+			RemoveSourceBranch: args.UpdateOptions.RemoveSourceBranch,
+			Squash:            args.UpdateOptions.Squash,
+			DiscussionLocked:  args.UpdateOptions.DiscussionLocked,
+		})
+	
+	case "accept":
+		if args.MrIID == "" {
+			return mcp.NewToolResultError("mr_iid is required for accept action"), nil
+		}
+		return acceptMergeRequestHandler(ctx, request, AcceptMergeRequestArgs{
+			ProjectPath:               args.ProjectPath,
+			MrIID:                    args.MrIID,
+			MergeCommitMessage:       args.AcceptOptions.MergeCommitMessage,
+			SquashCommitMessage:      args.AcceptOptions.SquashCommitMessage,
+			Squash:                   args.AcceptOptions.Squash,
+			ShouldRemoveSourceBranch: args.AcceptOptions.ShouldRemoveSourceBranch,
+			MergeWhenPipelineSucceeds: args.AcceptOptions.MergeWhenPipelineSucceeds,
+		})
+	
+	case "rebase":
+		if args.MrIID == "" {
+			return mcp.NewToolResultError("mr_iid is required for rebase action"), nil
+		}
+		return rebaseMRHandler(ctx, request, RebaseMRArgs{
+			ProjectPath: args.ProjectPath,
+			MrIID:       args.MrIID,
+			SkipCI:      args.RebaseOptions.SkipCI,
+		})
+	
+	case "changes":
+		if args.MrIID == "" {
+			return mcp.NewToolResultError("mr_iid is required for changes action"), nil
+		}
+		return getMRChangesHandler(ctx, request, GetMRChangesArgs{
+			ProjectPath:    args.ProjectPath,
+			MrIID:          args.MrIID,
+			AccessRawDiffs: args.ChangesOptions.AccessRawDiffs,
+			Unidiff:        args.ChangesOptions.Unidiff,
+		})
+	
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("unsupported action: %s. Supported actions: list, get, create, update, accept, rebase, changes", args.Action)), nil
+	}
+}
+
+// Consolidated MR Comments Handler
+func mergeRequestCommentsHandler(ctx context.Context, request mcp.CallToolRequest, args MergeRequestCommentsArgs) (*mcp.CallToolResult, error) {
+	switch args.Action {
+	case "list":
+		return listMRCommentsHandler(ctx, request, ListMRCommentsArgs{
+			ProjectPath: args.ProjectPath,
+			MrIID:       args.MrIID,
+		})
+	
+	case "create":
+		if args.CommentOptions.Comment == "" {
+			return mcp.NewToolResultError("comment is required for create action"), nil
+		}
+		return commentOnMergeRequestHandler(ctx, request, CreateMRNoteArgs{
+			ProjectPath: args.ProjectPath,
+			MrIID:       args.MrIID,
+			Comment:     args.CommentOptions.Comment,
+		})
+	
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("unsupported action: %s. Supported actions: list, create", args.Action)), nil
+	}
+}
+
+// Consolidated MR Pipeline Handler
+func mergeRequestPipelineHandler(ctx context.Context, request mcp.CallToolRequest, args MergeRequestPipelineArgs) (*mcp.CallToolResult, error) {
+	switch args.Action {
+	case "list":
+		return getMRPipelinesHandler(ctx, request, GetMRPipelinesArgs{
+			ProjectPath: args.ProjectPath,
+			MrIID:       args.MrIID,
+		})
+	
+	case "create":
+		return createMRPipelineHandler(ctx, request, CreateMRPipelineArgs{
+			ProjectPath: args.ProjectPath,
+			MrIID:       args.MrIID,
+		})
+	
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("unsupported action: %s. Supported actions: list, create", args.Action)), nil
+	}
+}
+
+// New handler for update MR
+func updateMergeRequestHandler(ctx context.Context, request mcp.CallToolRequest, args UpdateMergeRequestArgs) (*mcp.CallToolResult, error) {
+	mrIID, err := strconv.Atoi(args.MrIID)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid mr_iid: %v", err)), nil
+	}
+
+	opt := &gitlab.UpdateMergeRequestOptions{}
+	
+	if args.Title != "" {
+		opt.Title = &args.Title
+	}
+	if args.Description != "" {
+		opt.Description = &args.Description
+	}
+	if args.TargetBranch != "" {
+		opt.TargetBranch = &args.TargetBranch
+	}
+	if args.StateEvent != "" {
+		opt.StateEvent = &args.StateEvent
+	}
+	if args.AssigneeID != 0 {
+		opt.AssigneeID = &args.AssigneeID
+	}
+	if args.MilestoneID != 0 {
+		opt.MilestoneID = &args.MilestoneID
+	}
+	// TODO: Fix Labels field assignment - requires proper LabelOptions type
+	// if args.Labels != "" {
+	//	opt.Labels = gitlab.Ptr(args.Labels)
+	// }
+	if args.RemoveSourceBranch {
+		opt.RemoveSourceBranch = &args.RemoveSourceBranch
+	}
+	if args.Squash {
+		opt.Squash = &args.Squash
+	}
+	if args.DiscussionLocked {
+		opt.DiscussionLocked = &args.DiscussionLocked
+	}
+
+	mr, _, err := util.GitlabClient().MergeRequests.UpdateMergeRequest(args.ProjectPath, mrIID, opt)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to update merge request: %v", err)), nil
+	}
+
+	result := strings.Builder{}
+	result.WriteString("Merge Request updated successfully!\n\n")
+	result.WriteString(fmt.Sprintf("MR #%d: %s\n", mr.IID, mr.Title))
+	result.WriteString(fmt.Sprintf("State: %s\n", mr.State))
+	result.WriteString(fmt.Sprintf("Source Branch: %s\n", mr.SourceBranch))
+	result.WriteString(fmt.Sprintf("Target Branch: %s\n", mr.TargetBranch))
+	result.WriteString(fmt.Sprintf("Author: %s\n", mr.Author.Username))
+	result.WriteString(fmt.Sprintf("Updated: %s\n", mr.UpdatedAt.Format("2006-01-02 15:04:05")))
+	result.WriteString(fmt.Sprintf("URL: %s\n", mr.WebURL))
+
+	if mr.Description != "" {
+		result.WriteString("\nDescription:\n")
+		result.WriteString(mr.Description)
+	}
+
+	return mcp.NewToolResultText(result.String()), nil
+}
+
+// New handler for accept MR
+func acceptMergeRequestHandler(ctx context.Context, request mcp.CallToolRequest, args AcceptMergeRequestArgs) (*mcp.CallToolResult, error) {
+	mrIID, err := strconv.Atoi(args.MrIID)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid mr_iid: %v", err)), nil
+	}
+
+	opt := &gitlab.AcceptMergeRequestOptions{}
+	
+	if args.MergeCommitMessage != "" {
+		opt.MergeCommitMessage = &args.MergeCommitMessage
+	}
+	if args.SquashCommitMessage != "" {
+		opt.SquashCommitMessage = &args.SquashCommitMessage
+	}
+	if args.Squash {
+		opt.Squash = &args.Squash
+	}
+	if args.ShouldRemoveSourceBranch {
+		opt.ShouldRemoveSourceBranch = &args.ShouldRemoveSourceBranch
+	}
+	if args.MergeWhenPipelineSucceeds {
+		opt.MergeWhenPipelineSucceeds = &args.MergeWhenPipelineSucceeds
+	}
+
+	mr, _, err := util.GitlabClient().MergeRequests.AcceptMergeRequest(args.ProjectPath, mrIID, opt)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to accept merge request: %v", err)), nil
+	}
+
+	result := strings.Builder{}
+	result.WriteString("Merge Request accepted successfully!\n\n")
+	result.WriteString(fmt.Sprintf("MR #%d: %s\n", mr.IID, mr.Title))
+	result.WriteString(fmt.Sprintf("State: %s\n", mr.State))
+	result.WriteString(fmt.Sprintf("Source Branch: %s\n", mr.SourceBranch))
+	result.WriteString(fmt.Sprintf("Target Branch: %s\n", mr.TargetBranch))
+	if mr.MergedAt != nil {
+		result.WriteString(fmt.Sprintf("Merged At: %s\n", mr.MergedAt.Format("2006-01-02 15:04:05")))
+	}
+	if mr.MergeCommitSHA != "" {
+		result.WriteString(fmt.Sprintf("Merge Commit SHA: %s\n", mr.MergeCommitSHA))
+	}
+	result.WriteString(fmt.Sprintf("URL: %s\n", mr.WebURL))
+
+	return mcp.NewToolResultText(result.String()), nil
 }
 
 func listMergeRequestsHandler(ctx context.Context, request mcp.CallToolRequest, args ListMergeRequestsArgs) (*mcp.CallToolResult, error) {
