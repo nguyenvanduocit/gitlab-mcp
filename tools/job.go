@@ -11,75 +11,43 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
-type ListProjectJobsArgs struct {
-	ProjectPath    string   `json:"project_path"`
-	Scope          []string `json:"scope,omitempty"`
+// Consolidated args structures
+type JobListArgs struct {
+	ProjectPath    string   `json:"project_path" validate:"required,min=1"`
+	PipelineID     *float64 `json:"pipeline_id,omitempty" validate:"omitempty,min=1"` // Optional - if provided, list pipeline jobs; if not, list project jobs
+	Scope          []string `json:"scope,omitempty" validate:"omitempty,dive,oneof=created pending running failed success canceled skipped"`
 	IncludeRetried bool     `json:"include_retried,omitempty"`
 }
 
-type ListPipelineJobsArgs struct {
-	ProjectPath    string   `json:"project_path"`
-	PipelineID     float64  `json:"pipeline_id"`
-	Scope          []string `json:"scope,omitempty"`
-	IncludeRetried bool     `json:"include_retried,omitempty"`
-}
-
-type GetJobArgs struct {
-	ProjectPath string  `json:"project_path"`
-	JobID       float64 `json:"job_id"`
-}
-
-type CancelJobArgs struct {
-	ProjectPath string  `json:"project_path"`
-	JobID       float64 `json:"job_id"`
-}
-
-type RetryJobArgs struct {
-	ProjectPath string  `json:"project_path"`
-	JobID       float64 `json:"job_id"`
+type JobManageArgs struct {
+	ProjectPath string  `json:"project_path" validate:"required,min=1"`
+	JobID       float64 `json:"job_id" validate:"required,min=1"`
+	Action      string  `json:"action" validate:"required,oneof=get cancel retry"` // "get", "cancel", "retry"
 }
 
 func RegisterJobTools(s *server.MCPServer) {
-	listProjectJobsTool := mcp.NewTool("list_project_jobs",
-		mcp.WithDescription("List jobs for a GitLab project"),
+	// Consolidated job listing tool
+	jobListTool := mcp.NewTool("manage_jobs_list",
+		mcp.WithDescription("List jobs for a GitLab project or specific pipeline"),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
+		mcp.WithNumber("pipeline_id", mcp.Description("Pipeline ID (optional - if provided, lists pipeline jobs; if not, lists project jobs)")),
 		mcp.WithArray("scope", mcp.Description("Job scope filter (created, pending, running, failed, success, canceled, skipped)")),
 		mcp.WithBoolean("include_retried", mcp.DefaultBool(false), mcp.Description("Include retried jobs")),
 	)
-	s.AddTool(listProjectJobsTool, mcp.NewTypedToolHandler(listProjectJobsHandler))
+	s.AddTool(jobListTool, mcp.NewTypedToolHandler(jobListHandler))
 
-	listPipelineJobsTool := mcp.NewTool("list_pipeline_jobs",
-		mcp.WithDescription("List jobs for a specific pipeline"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithNumber("pipeline_id", mcp.Required(), mcp.Description("Pipeline ID")),
-		mcp.WithArray("scope", mcp.Description("Job scope filter (created, pending, running, failed, success, canceled, skipped)")),
-		mcp.WithBoolean("include_retried", mcp.DefaultBool(false), mcp.Description("Include retried jobs")),
-	)
-	s.AddTool(listPipelineJobsTool, mcp.NewTypedToolHandler(listPipelineJobsHandler))
-
-	getJobTool := mcp.NewTool("get_job",
-		mcp.WithDescription("Get details for a specific job by ID"),
+	// Consolidated job management tool
+	jobManageTool := mcp.NewTool("manage_job_actions",
+		mcp.WithDescription("Perform actions on a specific job (get details, cancel, or retry)"),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
 		mcp.WithNumber("job_id", mcp.Required(), mcp.Description("Job ID")),
+		mcp.WithString("action", mcp.Required(), mcp.Description("Action to perform: 'get' (get details), 'cancel' (cancel job), 'retry' (retry job)")),
 	)
-	s.AddTool(getJobTool, mcp.NewTypedToolHandler(getJobHandler))
-
-	cancelJobTool := mcp.NewTool("cancel_job",
-		mcp.WithDescription("Cancel a specific job"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithNumber("job_id", mcp.Required(), mcp.Description("Job ID to cancel")),
-	)
-	s.AddTool(cancelJobTool, mcp.NewTypedToolHandler(cancelJobHandler))
-
-	retryJobTool := mcp.NewTool("retry_job",
-		mcp.WithDescription("Retry a specific job"),
-		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
-		mcp.WithNumber("job_id", mcp.Required(), mcp.Description("Job ID to retry")),
-	)
-	s.AddTool(retryJobTool, mcp.NewTypedToolHandler(retryJobHandler))
+	s.AddTool(jobManageTool, mcp.NewTypedToolHandler(jobManageHandler))
 }
 
-func listProjectJobsHandler(ctx context.Context, request mcp.CallToolRequest, args ListProjectJobsArgs) (*mcp.CallToolResult, error) {
+// Consolidated job listing handler
+func jobListHandler(ctx context.Context, request mcp.CallToolRequest, args JobListArgs) (*mcp.CallToolResult, error) {
 	opt := &gitlab.ListJobsOptions{}
 
 	// Convert scope strings to BuildStateValue
@@ -95,50 +63,25 @@ func listProjectJobsHandler(ctx context.Context, request mcp.CallToolRequest, ar
 		opt.IncludeRetried = gitlab.Ptr(args.IncludeRetried)
 	}
 
-	jobs, _, err := util.GitlabClient().Jobs.ListProjectJobs(args.ProjectPath, opt)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to list project jobs: %v", err)), nil
-	}
-
+	var jobs []*gitlab.Job
+	var err error
 	var result strings.Builder
-	result.WriteString(fmt.Sprintf("Jobs for project %s:\n\n", args.ProjectPath))
 
-	for _, job := range jobs {
-		result.WriteString(formatJobInfo(job))
-		result.WriteString("\n")
-	}
-
-	if len(jobs) == 0 {
-		result.WriteString("No jobs found for the specified criteria.\n")
-	}
-
-	return mcp.NewToolResultText(result.String()), nil
-}
-
-func listPipelineJobsHandler(ctx context.Context, request mcp.CallToolRequest, args ListPipelineJobsArgs) (*mcp.CallToolResult, error) {
-	pipelineID := int(args.PipelineID)
-	opt := &gitlab.ListJobsOptions{}
-
-	// Convert scope strings to BuildStateValue
-	if len(args.Scope) > 0 {
-		var scopes []gitlab.BuildStateValue
-		for _, s := range args.Scope {
-			scopes = append(scopes, gitlab.BuildStateValue(s))
+	// Check if pipeline_id is provided to determine which API to call
+	if args.PipelineID != nil {
+		pipelineID := int(*args.PipelineID)
+		jobs, _, err = util.GitlabClient().Jobs.ListPipelineJobs(args.ProjectPath, pipelineID, opt)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to list pipeline jobs: %v", err)), nil
 		}
-		opt.Scope = &scopes
+		result.WriteString(fmt.Sprintf("Jobs for pipeline #%d in project %s:\n\n", pipelineID, args.ProjectPath))
+	} else {
+		jobs, _, err = util.GitlabClient().Jobs.ListProjectJobs(args.ProjectPath, opt)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to list project jobs: %v", err)), nil
+		}
+		result.WriteString(fmt.Sprintf("Jobs for project %s:\n\n", args.ProjectPath))
 	}
-
-	if args.IncludeRetried {
-		opt.IncludeRetried = gitlab.Ptr(args.IncludeRetried)
-	}
-
-	jobs, _, err := util.GitlabClient().Jobs.ListPipelineJobs(args.ProjectPath, pipelineID, opt)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to list pipeline jobs: %v", err)), nil
-	}
-
-	var result strings.Builder
-	result.WriteString(fmt.Sprintf("Jobs for pipeline #%d in project %s:\n\n", pipelineID, args.ProjectPath))
 
 	for _, job := range jobs {
 		result.WriteString(formatJobInfo(job))
@@ -146,16 +89,35 @@ func listPipelineJobsHandler(ctx context.Context, request mcp.CallToolRequest, a
 	}
 
 	if len(jobs) == 0 {
-		result.WriteString("No jobs found for the specified pipeline.\n")
+		if args.PipelineID != nil {
+			result.WriteString("No jobs found for the specified pipeline.\n")
+		} else {
+			result.WriteString("No jobs found for the specified criteria.\n")
+		}
 	}
 
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func getJobHandler(ctx context.Context, request mcp.CallToolRequest, args GetJobArgs) (*mcp.CallToolResult, error) {
+// Consolidated job management handler
+func jobManageHandler(ctx context.Context, request mcp.CallToolRequest, args JobManageArgs) (*mcp.CallToolResult, error) {
 	jobID := int(args.JobID)
 
-	job, _, err := util.GitlabClient().Jobs.GetJob(args.ProjectPath, jobID)
+	switch strings.ToLower(args.Action) {
+	case "get":
+		return getJobDetails(args.ProjectPath, jobID)
+	case "cancel":
+		return cancelJobAction(args.ProjectPath, jobID)
+	case "retry":
+		return retryJobAction(args.ProjectPath, jobID)
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("invalid action '%s'. Valid actions are: get, cancel, retry", args.Action)), nil
+	}
+}
+
+// Helper functions for job management actions
+func getJobDetails(projectPath string, jobID int) (*mcp.CallToolResult, error) {
+	job, _, err := util.GitlabClient().Jobs.GetJob(projectPath, jobID)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to get job: %v", err)), nil
 	}
@@ -167,10 +129,8 @@ func getJobHandler(ctx context.Context, request mcp.CallToolRequest, args GetJob
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func cancelJobHandler(ctx context.Context, request mcp.CallToolRequest, args CancelJobArgs) (*mcp.CallToolResult, error) {
-	jobID := int(args.JobID)
-
-	job, _, err := util.GitlabClient().Jobs.CancelJob(args.ProjectPath, jobID)
+func cancelJobAction(projectPath string, jobID int) (*mcp.CallToolResult, error) {
+	job, _, err := util.GitlabClient().Jobs.CancelJob(projectPath, jobID)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to cancel job: %v", err)), nil
 	}
@@ -182,10 +142,8 @@ func cancelJobHandler(ctx context.Context, request mcp.CallToolRequest, args Can
 	return mcp.NewToolResultText(result.String()), nil
 }
 
-func retryJobHandler(ctx context.Context, request mcp.CallToolRequest, args RetryJobArgs) (*mcp.CallToolResult, error) {
-	jobID := int(args.JobID)
-
-	job, _, err := util.GitlabClient().Jobs.RetryJob(args.ProjectPath, jobID)
+func retryJobAction(projectPath string, jobID int) (*mcp.CallToolResult, error) {
+	job, _, err := util.GitlabClient().Jobs.RetryJob(projectPath, jobID)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to retry job: %v", err)), nil
 	}
