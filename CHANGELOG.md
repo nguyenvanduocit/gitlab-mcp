@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/nguyenvanduocit/gitlab-mcp/compare/v1.0.0...v1.0.1) (2026-03-13)
+
+
+### Bug Fixes
+
+* use merge instead of squash to preserve commit SHAs for release-please ([b9c2354](https://github.com/nguyenvanduocit/gitlab-mcp/commit/b9c23541ec08ca7724d29be0d74104133f26278a))
+
 ## 1.0.0 (2026-03-13)
 
 
