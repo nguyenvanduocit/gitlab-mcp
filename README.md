@@ -542,3 +542,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 **Need help?** Check our [CHANGELOG.md](./CHANGELOG.md) for recent updates or open an issue on GitHub.
+
+## Installation
+
+### Homebrew (macOS/Linux)
+
+```bash
+brew install nguyenvanduocit/tap/gitlab-mcp
+```
