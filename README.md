@@ -469,7 +469,7 @@ In addition to the MCP server, `gitlab-mcp` ships a standalone CLI binary (`gitl
 ```bash
 just install-cli
 # or
-go install github.com/nguyenvanduocit/gitlab-mcp/cmd/cli@latest
+go install github.com/nguyenvanduocit/gitlab-mcp/cmd/gitlab-cli@latest
 ```
 
 ### Quick Start
