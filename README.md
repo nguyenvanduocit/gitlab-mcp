@@ -460,6 +460,64 @@ gitlab-mcp/
 └── README.md     # This file
 ```
 
+## CLI Usage
+
+In addition to the MCP server, `gitlab-mcp` ships a standalone CLI binary (`gitlab-cli`) for direct terminal use — no MCP client needed.
+
+### Installation
+
+```bash
+just install-cli
+# or
+go install github.com/nguyenvanduocit/gitlab-mcp/cmd/cli@latest
+```
+
+### Quick Start
+
+```bash
+export GITLAB_URL=https://gitlab.com
+export GITLAB_TOKEN=your-access-token
+# or
+gitlab-cli --env .env <command> [flags]
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `list-projects` | List GitLab projects |
+| `list-mrs` | List merge requests |
+| `list-pipelines` | List pipelines |
+| `list-branches` | List branches |
+| `list-jobs` | List CI/CD jobs |
+| `list-users` | List group members |
+| `list-groups` | List groups |
+| `manage-variable` | Manage CI/CD variables |
+| `trigger-pipeline` | Trigger a pipeline |
+| `search` | Search across GitLab |
+
+### Examples
+
+```bash
+# List projects
+gitlab-cli list-projects --search my-repo
+
+# List open MRs
+gitlab-cli list-mrs --project-id 123 --state opened
+
+# Trigger pipeline
+gitlab-cli trigger-pipeline --project-id 123 --ref main
+
+# JSON output
+gitlab-cli list-projects --output json | jq '.[].path_with_namespace'
+```
+
+### Flags
+
+Every command accepts:
+- `--env string` — Path to `.env` file
+- `--output string` — Output format: `text` (default) or `json`
+
 ## 🤝 Contributing
 
 We welcome contributions! Here's how to get started:

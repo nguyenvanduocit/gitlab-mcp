@@ -24,6 +24,7 @@ type RepositoryFilesArgs struct {
 type CommitsManagementArgs struct {
 	Action      string `json:"action" validate:"required,oneof=list search get_details get_comments post_comment get_merge_requests get_refs"`
 	ProjectPath string `json:"project_path" validate:"required,min=1,max=255"`
+	Confirmed   bool   `json:"confirmed,omitempty"`
 	
 	// Common commit parameters
 	CommitSHA string `json:"commit_sha,omitempty" validate:"omitempty,min=7,max=40,alphanum"`
@@ -62,6 +63,7 @@ type CommitOperationsArgs struct {
 	ProjectPath string `json:"project_path" validate:"required,min=1,max=255"`
 	CommitSHA   string `json:"commit_sha" validate:"required,min=7,max=40,alphanum"`
 	Branch      string `json:"branch" validate:"required,min=1,max=255"`
+	Confirmed   bool   `json:"confirmed,omitempty"`
 	
 	// Cherry-pick specific options
 	CherryPickOptions struct {
@@ -87,6 +89,7 @@ func RegisterRepositoryTools(s *server.MCPServer) {
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path (1-255 characters)")),
 		mcp.WithString("commit_sha", mcp.Description("Commit SHA (7-40 alphanumeric characters, required for: get_details, get_comments, post_comment, get_merge_requests, get_refs)")),
 		mcp.WithString("ref", mcp.Description("Branch name, tag, or commit SHA (1-255 characters, required for list action)")),
+		mcp.WithBoolean("confirmed", mcp.Description("Confirmation required for post_comment action")),
 		
 		// List options
 		mcp.WithObject("list_options",
@@ -183,6 +186,7 @@ func RegisterRepositoryTools(s *server.MCPServer) {
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path (1-255 characters)")),
 		mcp.WithString("commit_sha", mcp.Required(), mcp.Description("Commit SHA to operate on (7-40 alphanumeric characters)")),
 		mcp.WithString("branch", mcp.Required(), mcp.Description("Target branch (1-255 characters)")),
+		mcp.WithBoolean("confirmed", mcp.Description("Confirmation required for cherry_pick and revert operations")),
 		
 		// Cherry-pick options
 		mcp.WithObject("cherry_pick_options",
@@ -247,6 +251,9 @@ func commitsManagementHandler(ctx context.Context, request mcp.CallToolRequest, 
 		return getCommitComments(ctx, args.ProjectPath, args.CommitSHA)
 		
 	case "post_comment":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with posting a comment."), nil
+		}
 		if args.CommitSHA == "" {
 			return mcp.NewToolResultError("commit_sha is required for post_comment action"), nil
 		}
@@ -276,10 +283,16 @@ func commitsManagementHandler(ctx context.Context, request mcp.CallToolRequest, 
 func commitOperationsHandler(ctx context.Context, request mcp.CallToolRequest, args CommitOperationsArgs) (*mcp.CallToolResult, error) {
 	switch args.Action {
 	case "cherry_pick":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with cherry-picking the commit."), nil
+		}
 		return cherryPickCommit(ctx, args.ProjectPath, args.CommitSHA, args.Branch,
 			args.CherryPickOptions.DryRun, args.CherryPickOptions.Message)
 		
 	case "revert":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with reverting the commit."), nil
+		}
 		return revertCommit(ctx, args.ProjectPath, args.CommitSHA, args.Branch)
 		
 	default:

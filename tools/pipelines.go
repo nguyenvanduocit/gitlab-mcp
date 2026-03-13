@@ -15,6 +15,7 @@ import (
 type PipelineManagementArgs struct {
 	ProjectPath string `json:"project_path" validate:"required,min=1"`
 	Action      string `json:"action" validate:"required,oneof=list get trigger"`
+	Confirmed   bool   `json:"confirmed,omitempty"`
 	
 	// List action options
 	ListOptions struct {
@@ -43,6 +44,7 @@ func RegisterPipelineTools(s *server.MCPServer) {
 		mcp.WithDescription("Comprehensive pipeline management for GitLab projects. Supports list, get details, and trigger operations."),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
 		mcp.WithString("action", mcp.Required(), mcp.Description("Action to perform: 'list' (list pipelines), 'get' (get pipeline details), 'trigger' (create new pipeline)")),
+		mcp.WithBoolean("confirmed", mcp.Description("Confirmation required for trigger action")),
 		
 		// List options
 		mcp.WithObject("list_options", 
@@ -111,6 +113,9 @@ func pipelineManagementHandler(ctx context.Context, request mcp.CallToolRequest,
 		}
 		return handleGetPipeline(args)
 	case "trigger":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with triggering a pipeline."), nil
+		}
 		if args.TriggerOptions.Ref == "" {
 			return mcp.NewToolResultError("ref is required in trigger_options for trigger action"), nil
 		}

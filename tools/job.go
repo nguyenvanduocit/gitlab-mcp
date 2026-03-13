@@ -22,7 +22,8 @@ type JobListArgs struct {
 type JobManageArgs struct {
 	ProjectPath string  `json:"project_path" validate:"required,min=1"`
 	JobID       float64 `json:"job_id" validate:"required,min=1"`
-	Action      string  `json:"action" validate:"required,oneof=get cancel retry"` // "get", "cancel", "retry"
+	Action      string  `json:"action" validate:"required,oneof=get cancel retry play"` // "get", "cancel", "retry", "play"
+	Confirmed   bool    `json:"confirmed,omitempty"`
 }
 
 func RegisterJobTools(s *server.MCPServer) {
@@ -41,7 +42,8 @@ func RegisterJobTools(s *server.MCPServer) {
 		mcp.WithDescription("Perform actions on a specific job (get details, cancel, or retry)"),
 		mcp.WithString("project_path", mcp.Required(), mcp.Description("Project/repo path")),
 		mcp.WithNumber("job_id", mcp.Required(), mcp.Description("Job ID")),
-		mcp.WithString("action", mcp.Required(), mcp.Description("Action to perform: 'get' (get details), 'cancel' (cancel job), 'retry' (retry job)")),
+		mcp.WithString("action", mcp.Required(), mcp.Description("Action to perform: 'get' (get details), 'cancel' (cancel job), 'retry' (retry job), 'play' (play manual job)")),
+		mcp.WithBoolean("confirmed", mcp.Description("Confirmation required for cancel, retry, and play actions")),
 	)
 	s.AddTool(jobManageTool, mcp.NewTypedToolHandler(jobManageHandler))
 }
@@ -107,11 +109,22 @@ func jobManageHandler(ctx context.Context, request mcp.CallToolRequest, args Job
 	case "get":
 		return getJobDetails(args.ProjectPath, jobID)
 	case "cancel":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with canceling the job."), nil
+		}
 		return cancelJobAction(args.ProjectPath, jobID)
 	case "retry":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with retrying the job."), nil
+		}
 		return retryJobAction(args.ProjectPath, jobID)
+	case "play":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with playing the manual job."), nil
+		}
+		return playJobAction(args.ProjectPath, jobID)
 	default:
-		return mcp.NewToolResultError(fmt.Sprintf("invalid action '%s'. Valid actions are: get, cancel, retry", args.Action)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("invalid action '%s'. Valid actions are: get, cancel, retry, play", args.Action)), nil
 	}
 }
 
@@ -279,4 +292,17 @@ func formatJobDetailedInfo(job *gitlab.Job) string {
 	result.WriteString(fmt.Sprintf("\nWeb URL: %s\n", job.WebURL))
 	
 	return result.String()
+}
+
+func playJobAction(projectPath string, jobID int) (*mcp.CallToolResult, error) {
+	job, _, err := util.GitlabClient().Jobs.PlayJob(projectPath, jobID, nil)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to play job: %v", err)), nil
+	}
+
+	var result strings.Builder
+	result.WriteString(fmt.Sprintf("Manual job #%d has been played successfully!\n\n", job.ID))
+	result.WriteString(formatJobInfo(job))
+
+	return mcp.NewToolResultText(result.String()), nil
 }

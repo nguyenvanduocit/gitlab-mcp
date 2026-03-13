@@ -518,7 +518,7 @@ func formatIssuesResult(issues []*gitlab.Issue) string {
 
 	for i, issue := range issues {
 		result.WriteString(fmt.Sprintf("%d. **#%d: %s**\n", i+1, issue.IID, issue.Title))
-		result.WriteString(fmt.Sprintf("   Project: %s\n", issue.ProjectID))
+		result.WriteString(fmt.Sprintf("   Project: %d\n", issue.ProjectID))
 		result.WriteString(fmt.Sprintf("   State: %s\n", issue.State))
 		result.WriteString(fmt.Sprintf("   Author: %s\n", issue.Author.Name))
 		if issue.Assignee != nil {
@@ -542,7 +542,7 @@ func formatMergeRequestsResult(mrs []*gitlab.MergeRequest) string {
 
 	for i, mr := range mrs {
 		result.WriteString(fmt.Sprintf("%d. **!%d: %s**\n", i+1, mr.IID, mr.Title))
-		result.WriteString(fmt.Sprintf("   Project: %s\n", mr.ProjectID))
+		result.WriteString(fmt.Sprintf("   Project: %d\n", mr.ProjectID))
 		result.WriteString(fmt.Sprintf("   State: %s\n", mr.State))
 		result.WriteString(fmt.Sprintf("   Author: %s\n", mr.Author.Name))
 		if mr.Assignee != nil {
