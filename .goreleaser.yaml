@@ -1,9 +1,29 @@
+version: 2
+
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - env:
+  - id: gitlab-mcp
+    main: .
+    binary: gitlab-mcp
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+  - id: gitlab-cli
+    main: ./cmd/gitlab-cli
+    binary: gitlab-cli
+    env:
       - CGO_ENABLED=0
     goos:
       - linux
@@ -34,10 +54,35 @@ checksum:
 snapshot:
   name_template: "{{ incpatch .Version }}-next"
 
+brews:
+  - name: gitlab-mcp
+    ids:
+      - gitlab-mcp
+    repository:
+      owner: nguyenvanduocit
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/nguyenvanduocit/gitlab-mcp"
+    description: "gitlab-mcp - MCP server"
+    install: |
+      bin.install "gitlab-mcp"
+
+  - name: gitlab-cli
+    ids:
+      - gitlab-cli
+    repository:
+      owner: nguyenvanduocit
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/nguyenvanduocit/gitlab-mcp"
+    description: "gitlab-cli - CLI tool"
+    install: |
+      bin.install "gitlab-cli"
+
 changelog:
   sort: asc
   filters:
     exclude:
       - '^docs:'
       - '^test:'
-      - '^chore:' 
+      - '^chore:'
