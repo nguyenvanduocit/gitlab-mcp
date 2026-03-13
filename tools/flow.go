@@ -15,6 +15,7 @@ import (
 type GitFlowCreateBranchArgs struct {
 	Action      string `json:"action" validate:"required,oneof=create_release create_feature create_hotfix"`
 	ProjectPath string `json:"project_path" validate:"required,min=1,max=200"`
+	Confirmed   bool   `json:"confirmed,omitempty"`
 	
 	// Branch creation options
 	CreateOptions struct {
@@ -37,6 +38,7 @@ type GitFlowCreateBranchArgs struct {
 type GitFlowFinishBranchArgs struct {
 	Action      string `json:"action" validate:"required,oneof=finish_release finish_feature finish_hotfix"`
 	ProjectPath string `json:"project_path" validate:"required,min=1,max=200"`
+	Confirmed   bool   `json:"confirmed,omitempty"`
 	
 	// Branch finishing options
 	FinishOptions struct {
@@ -73,6 +75,8 @@ func RegisterFlowTools(s *server.MCPServer) {
 		mcp.WithString("project_path", 
 			mcp.Required(), 
 			mcp.Description("Project/repo path")),
+		mcp.WithBoolean("confirmed", 
+			mcp.Description("Confirmation required for all create operations")),
 		mcp.WithObject("create_options",
 			mcp.Description("Branch creation options"),
 			mcp.Properties(map[string]any{
@@ -113,6 +117,8 @@ func RegisterFlowTools(s *server.MCPServer) {
 		mcp.WithString("project_path",
 			mcp.Required(),
 			mcp.Description("Project/repo path")),
+		mcp.WithBoolean("confirmed", 
+			mcp.Description("Confirmation required for all finish operations")),
 		mcp.WithObject("finish_options",
 			mcp.Description("Branch finishing options"),
 			mcp.Properties(map[string]any{
@@ -165,10 +171,19 @@ func RegisterFlowTools(s *server.MCPServer) {
 func gitFlowCreateBranchHandler(ctx context.Context, request mcp.CallToolRequest, args GitFlowCreateBranchArgs) (*mcp.CallToolResult, error) {
 	switch args.Action {
 	case "create_release":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with creating a release branch."), nil
+		}
 		return createReleaseBranch(args)
 	case "create_feature":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with creating a feature branch."), nil
+		}
 		return createFeatureBranch(args)
 	case "create_hotfix":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with creating a hotfix branch."), nil
+		}
 		return createHotfixBranch(args)
 	default:
 		return mcp.NewToolResultError(fmt.Sprintf("unsupported action: %s", args.Action)), nil
@@ -179,10 +194,19 @@ func gitFlowCreateBranchHandler(ctx context.Context, request mcp.CallToolRequest
 func gitFlowFinishBranchHandler(ctx context.Context, request mcp.CallToolRequest, args GitFlowFinishBranchArgs) (*mcp.CallToolResult, error) {
 	switch args.Action {
 	case "finish_release":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with finishing a release branch."), nil
+		}
 		return finishReleaseBranch(args)
 	case "finish_feature":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with finishing a feature branch."), nil
+		}
 		return finishFeatureBranch(args)
 	case "finish_hotfix":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with finishing a hotfix branch."), nil
+		}
 		return finishHotfixBranch(args)
 	default:
 		return mcp.NewToolResultError(fmt.Sprintf("unsupported action: %s", args.Action)), nil

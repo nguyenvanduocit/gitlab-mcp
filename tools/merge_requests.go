@@ -17,6 +17,7 @@ type MergeRequestManagementArgs struct {
 	Action      string `json:"action" validate:"required,oneof=list get create update accept rebase changes"`
 	ProjectPath string `json:"project_path" validate:"required,min=1"`
 	MrIID       string `json:"mr_iid,omitempty" validate:"omitempty,min=1"`
+	Confirmed   bool   `json:"confirmed,omitempty"`
 	
 	// List action specific
 	ListOptions struct {
@@ -71,6 +72,7 @@ type MergeRequestCommentsArgs struct {
 	Action      string `json:"action" validate:"required,oneof=list create"`
 	ProjectPath string `json:"project_path" validate:"required,min=1"`
 	MrIID       string `json:"mr_iid" validate:"required,min=1"`
+	Confirmed   bool   `json:"confirmed,omitempty"`
 	
 	// Create comment specific
 	CommentOptions struct {
@@ -83,6 +85,7 @@ type MergeRequestPipelineArgs struct {
 	Action      string `json:"action" validate:"required,oneof=list create"`
 	ProjectPath string `json:"project_path" validate:"required,min=1"`
 	MrIID       string `json:"mr_iid" validate:"required,min=1"`
+	Confirmed   bool   `json:"confirmed,omitempty"`
 }
 
 // Legacy individual args for backward compatibility
@@ -190,6 +193,8 @@ func RegisterMergeRequestTools(s *server.MCPServer) {
 			mcp.Description("Project/repo path")),
 		mcp.WithString("mr_iid", 
 			mcp.Description("Merge request IID (required for get, update, accept, rebase, changes actions)")),
+		mcp.WithBoolean("confirmed", 
+			mcp.Description("Confirmation required for destructive operations (create, update, accept, rebase)")),
 		
 		// List options
 		mcp.WithObject("list_options",
@@ -339,6 +344,8 @@ func RegisterMergeRequestTools(s *server.MCPServer) {
 		mcp.WithString("mr_iid", 
 			mcp.Required(), 
 			mcp.Description("Merge request IID")),
+		mcp.WithBoolean("confirmed", 
+			mcp.Description("Confirmation required for create action")),
 		
 		// Comment options
 		mcp.WithObject("comment_options",
@@ -364,6 +371,8 @@ func RegisterMergeRequestTools(s *server.MCPServer) {
 		mcp.WithString("mr_iid", 
 			mcp.Required(), 
 			mcp.Description("Merge request IID")),
+		mcp.WithBoolean("confirmed", 
+			mcp.Description("Confirmation required for create action")),
 	)
 
 	// MR Commits Tool (standalone as it's unique)
@@ -403,6 +412,9 @@ func mergeRequestManagementHandler(ctx context.Context, request mcp.CallToolRequ
 		})
 	
 	case "create":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with creating a merge request."), nil
+		}
 		if args.CreateOptions.SourceBranch == "" || args.CreateOptions.TargetBranch == "" || args.CreateOptions.Title == "" {
 			return mcp.NewToolResultError("source_branch, target_branch, and title are required for create action"), nil
 		}
@@ -415,6 +427,9 @@ func mergeRequestManagementHandler(ctx context.Context, request mcp.CallToolRequ
 		})
 	
 	case "update":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with updating the merge request."), nil
+		}
 		if args.MrIID == "" {
 			return mcp.NewToolResultError("mr_iid is required for update action"), nil
 		}
@@ -434,6 +449,9 @@ func mergeRequestManagementHandler(ctx context.Context, request mcp.CallToolRequ
 		})
 	
 	case "accept":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with accepting/merging the merge request."), nil
+		}
 		if args.MrIID == "" {
 			return mcp.NewToolResultError("mr_iid is required for accept action"), nil
 		}
@@ -448,6 +466,9 @@ func mergeRequestManagementHandler(ctx context.Context, request mcp.CallToolRequ
 		})
 	
 	case "rebase":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with rebasing the merge request."), nil
+		}
 		if args.MrIID == "" {
 			return mcp.NewToolResultError("mr_iid is required for rebase action"), nil
 		}
@@ -483,6 +504,9 @@ func mergeRequestCommentsHandler(ctx context.Context, request mcp.CallToolReques
 		})
 	
 	case "create":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with creating a comment."), nil
+		}
 		if args.CommentOptions.Comment == "" {
 			return mcp.NewToolResultError("comment is required for create action"), nil
 		}
@@ -507,6 +531,9 @@ func mergeRequestPipelineHandler(ctx context.Context, request mcp.CallToolReques
 		})
 	
 	case "create":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with creating a pipeline."), nil
+		}
 		return createMRPipelineHandler(ctx, request, CreateMRPipelineArgs{
 			ProjectPath: args.ProjectPath,
 			MrIID:       args.MrIID,
