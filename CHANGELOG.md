@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/nguyenvanduocit/gitlab-mcp/compare/v1.0.1...v1.0.2) (2026-03-13)
+
+
+### Bug Fixes
+
+* checkout tagged commit in goreleaser to fix tag mismatch ([82e8f0d](https://github.com/nguyenvanduocit/gitlab-mcp/commit/82e8f0dffb2c9ab39f7543ba6bebdb7c0013a794))
+
 ## [1.0.1](https://github.com/nguyenvanduocit/gitlab-mcp/compare/v1.0.0...v1.0.1) (2026-03-13)
 
 
