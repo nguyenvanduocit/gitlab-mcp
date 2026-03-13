@@ -40,6 +40,7 @@ type ManageDeployTokensArgs struct {
 	Scope      DeployTokenScope          `json:"scope"`                                                    // Scope configuration
 	TokenID    *DeployTokenIdentifier    `json:"token_id,omitempty"`                                      // For get/delete actions
 	CreateOpts *DeployTokenCreateOptions `json:"create_options,omitempty"`                               // For create action
+	Confirmed  bool                      `json:"confirmed,omitempty"`                                     // Confirmation for destructive operations
 }
 
 func RegisterDeploymentTools(s *server.MCPServer) {
@@ -57,6 +58,8 @@ func RegisterDeploymentTools(s *server.MCPServer) {
 		mcp.WithString("action", 
 			mcp.Required(), 
 			mcp.Description("Action to perform: list, get, create, delete")),
+		mcp.WithBoolean("confirmed", 
+			mcp.Description("Confirmation required for create and delete operations")),
 		mcp.WithObject("scope",
 			mcp.Required(),
 			mcp.Description("Scope configuration for the deploy token operation"),
@@ -193,8 +196,14 @@ func manageDeployTokensHandler(ctx context.Context, request mcp.CallToolRequest,
 	case "get":
 		return handleGetDeployToken(args)
 	case "create":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with creating a deploy token."), nil
+		}
 		return handleCreateDeployToken(args)
 	case "delete":
+		if !args.Confirmed {
+			return mcp.NewToolResultError("This operation requires confirmation. Please set 'confirmed: true' to proceed with deleting a deploy token."), nil
+		}
 		return handleDeleteDeployToken(args)
 	default:
 		return mcp.NewToolResultError(fmt.Sprintf("unsupported action: %s", args.Action)), nil

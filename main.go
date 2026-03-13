@@ -82,6 +82,7 @@ func main() {
 	tools.RegisterProjectTools(mcpServer)
 	tools.RegisterMergeRequestTools(mcpServer)
 	tools.RegisterRepositoryTools(mcpServer)
+	tools.RegisterBranchTools(mcpServer)
 	tools.RegisterPipelineTools(mcpServer)
 	tools.RegisterJobTools(mcpServer)
 	tools.RegisterUserTools(mcpServer)
