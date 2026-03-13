@@ -33,4 +33,5 @@ Thumbs.db
 # Build directory
 /build/
 /dist/
-.cursor/
+.cursor/bin/gitlab-mcp
+bin/gitlab-cli
